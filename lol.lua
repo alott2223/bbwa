@@ -2342,12 +2342,28 @@ do
 
 	-- Font stubs for Potassium (overrides Roblox built-in Font type)
 	-- Synapse X used Font.Register/RegisterDefault/ListDefault; Potassium doesn't have these
+	-- Returns objects with GetTextBounds method + _fontId for Drawing.Text.Font
 	Font = {}
+	local function makeFontObject(fontId)
+		local obj = { _fontId = fontId or 2 }
+		function obj:GetTextBounds(size, text)
+			local temp = Drawing.new("Text")
+			temp.Text = text or ""
+			temp.Size = size
+			temp.Font = self._fontId
+			local bounds = temp.TextBounds
+			temp:Remove()
+			return bounds
+		end
+		return setmetatable(obj, {
+			__tostring = function() return "Font" end
+		})
+	end
 	function Font.Register(fontData, args)
-		return 2 -- default to Plex
+		return makeFontObject(2)
 	end
 	function Font.RegisterDefault(fontName, args)
-		return 2
+		return makeFontObject(2)
 	end
 	function Font.ListDefault()
 		return {"IBMPlexMono_Medium", "IBMPlexMono_Bold", "Monospace", "System", "UI"}
@@ -2573,7 +2589,7 @@ do
 			Color = function(s, v) s._drawing.Color = v end,
 			Text = function(s, v) s._drawing.Text = tostring(v or "") end,
 			Size = function(s, v) s._drawing.Size = v end,
-			Font = function(s, v) s._drawing.Font = v end,
+			Font = function(s, v) s._drawing.Font = (type(v) == "table" and v._fontId) or v end,
 			Position = function(s, v) s._drawing.Position = v end,
 			Outlined = function(s, v) rawset(s, "_outlined", v); s._drawing.Outline = v end,
 			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v); s._drawing.OutlineColor = v end,
