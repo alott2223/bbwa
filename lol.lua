@@ -273,6 +273,7 @@ do
 	end
 
 	game:GetService("RunService"):UnbindFromRenderStep("FW0a9kf0w2of00-Last")
+	--[[ printconsole not available in Potassium - commented out
 	local printconsole = printconsole or rconsoleprint or function(text) print(text) end
 	game:GetService("RunService"):BindToRenderStep("FW0a9kf0w2of00-Last", Enum.RenderPriority.Last.Value, function(...)
 		for i=1, #scheduler do
@@ -296,6 +297,7 @@ do
 		end
 		scheduler = {}
 	end)
+	]]
 
 	function log.error(...)
 		log.printerror(...)
@@ -2525,6 +2527,7 @@ do
 			["Thickness"] = 2,
 		}, extramethods, 2)
 	]]
+	--[[ Drawing Dynamic classes not available - commented out
 	draw:RegisterPoint(function(...)
 		return PointOffset.new(Point2D.new(...))
 	end, "2V", {
@@ -2604,6 +2607,7 @@ do
 		["XAlignment"] = 2,
 		["YAlignment"] = 2,
 	})
+	]]
 
     -- Hello are you around?
     function draw:IsValid(object)
