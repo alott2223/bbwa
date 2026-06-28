@@ -2334,6 +2334,9 @@ do
 	XAlignment = { Right = 0, Center = 1, Left = 2 }
 	YAlignment = { Bottom = 0, Center = 1, Top = 2 }
 
+	-- PolyLineFillType enum (Synapse X Drawing Dynamic)
+	PolyLineFillType = { ConvexFilled = 0, Closed = 1 }
+
 	-- ImageRef stub: wraps raw image data for Drawing.new("Image")
 	ImageRef = {}
 	function ImageRef.new(data)
@@ -2343,17 +2346,20 @@ do
 	-- Font stubs for Potassium (overrides Roblox built-in Font type)
 	-- Synapse X used Font.Register/RegisterDefault/ListDefault; Potassium doesn't have these
 	-- Returns objects with GetTextBounds method + _fontId for Drawing.Text.Font
+	-- Caches a single Drawing.Text to avoid crash from rapid create/destroy
 	Font = {}
+	local _textBoundsCache
 	local function makeFontObject(fontId)
 		local obj = { _fontId = fontId or 2 }
 		function obj:GetTextBounds(size, text)
-			local temp = Drawing.new("Text")
-			temp.Text = text or ""
-			temp.Size = size
-			temp.Font = self._fontId
-			local bounds = temp.TextBounds
-			temp:Remove()
-			return bounds
+			if not _textBoundsCache then
+				_textBoundsCache = Drawing.new("Text")
+				_textBoundsCache.Visible = false
+			end
+			_textBoundsCache.Text = text or ""
+			_textBoundsCache.Size = size
+			_textBoundsCache.Font = self._fontId
+			return _textBoundsCache.TextBounds
 		end
 		return setmetatable(obj, {
 			__tostring = function() return "Font" end
