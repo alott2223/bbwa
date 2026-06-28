@@ -1,3 +1,26 @@
+--[[
+	Hi, this is WholeCream further known as NiceCream
+	I've decided to completely rework it to use some of my libraries.
+	For future reference these libraries can be separated in the future!
+
+	Your welcome - WholeCream
+
+	!!READ!!
+	Seems that synapse X has another bug with drawings
+	They tend to... Crash... A lot...
+	Reloading is still fine thought...
+
+	PLEASE READ:
+		The structure that each module should be loaded
+		in the exact same order when file separation is done.
+
+		DO NOT LEAVE THIS TO THE LAST MINUTE
+]]
+--[[
+	Next on da list
+	Bad Business
+]]
+
 local _BBOT = _G.BBOT
 local username = (BBOT and BBOT.username or nil)
 if BBOT and BBOT.__init then
@@ -2317,18 +2340,17 @@ do
 		return { Data = data, ImageSize = Vector2.new(0, 0) }
 	end
 
-	-- Font stubs for Potassium (uses numeric font IDs)
-	if not Font then
-		Font = {}
-		function Font.Register(fontData, args)
-			return 2 -- default to Plex
-		end
-		function Font.RegisterDefault(fontName, args)
-			return 2
-		end
-		function Font.ListDefault()
-			return {"IBMPlexMono_Medium", "IBMPlexMono_Bold", "Monospace", "System", "UI"}
-		end
+	-- Font stubs for Potassium (overrides Roblox built-in Font type)
+	-- Synapse X used Font.Register/RegisterDefault/ListDefault; Potassium doesn't have these
+	Font = {}
+	function Font.Register(fontData, args)
+		return 2 -- default to Plex
+	end
+	function Font.RegisterDefault(fontName, args)
+		return 2
+	end
+	function Font.ListDefault()
+		return {"IBMPlexMono_Medium", "IBMPlexMono_Bold", "Monospace", "System", "UI"}
 	end
 
 	-- ==================== POINT CLASSES ====================
