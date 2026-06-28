@@ -22,8 +22,8 @@
 ]]
 
 local _BBOT = _G.BBOT
-local username = (BBOT and BBOT.username or nil)
-if BBOT and BBOT.__init then
+local username = (_BBOT and _BBOT.username or nil)
+if _BBOT and _BBOT.__init then
 	BBOT = nil
 end
 
