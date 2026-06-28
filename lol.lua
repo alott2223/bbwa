@@ -1,28 +1,3 @@
-
-
---[[
-	Hi, this is WholeCream further known as NiceCream
-	I've decided to completely rework it to use some of my libraries.
-	For future reference these libraries can be separated in the future!
-
-	Your welcome - WholeCream
-
-	!!READ!!
-	Seems that synapse X has another bug with drawings
-	They tend to... Crash... A lot...
-	Reloading is still fine thought...
-
-	PLEASE READ:
-		The structure that each module should be loaded
-		in the exact same order when file separation is done.
-
-		DO NOT LEAVE THIS TO THE LAST MINUTE
-]]
---[[
-	Next on da list
-	Bad Business
-]]
-
 local _BBOT = _G.BBOT
 local username = (BBOT and BBOT.username or nil)
 if BBOT and BBOT.__init then
