@@ -77,6 +77,27 @@ local BBOT = BBOT or { username = (username or "dev"), alias = "Bitch Bot", vers
 BBOT.Changelogs = [[N/A]]
 _G.BBOT = BBOT
 
+-- Potassium compatibility polyfills
+if not getsynasset then
+	getsynasset = getcustomasset or function(path) return path end
+end
+if not crypt then
+	crypt = {}
+	crypt.base64decode = function(data)
+		-- Potassium should have base64decode, fallback to raw data
+		if base64_decode then return base64_decode(data) end
+		if base64 and base64.decode then return base64.decode(data) end
+		return data
+	end
+	crypt.base64encode = function(data) return data end
+end
+if not crypt.base64decode then
+	crypt.base64decode = function(data) return data end
+end
+if not setclipboard then
+	setclipboard = toclipboard or function() end
+end
+
 BBOT.Debug = {
 	internal = isfile("bbdbg.txt"),
 	menu = isfile("bbmdbg.txt"),
@@ -273,31 +294,29 @@ do
 	end
 
 	game:GetService("RunService"):UnbindFromRenderStep("FW0a9kf0w2of00-Last")
-	--[[ printconsole not available in Potassium - commented out
 	local printconsole = printconsole or rconsoleprint or function(text) print(text) end
 	game:GetService("RunService"):BindToRenderStep("FW0a9kf0w2of00-Last", Enum.RenderPriority.Last.Value, function(...)
 		for i=1, #scheduler do
 			local v = scheduler[i]
 			if v[1] == 1 then
 				local text = valuetoprintable(unpack(v[2]))
-				printconsole(text, white)
+				printconsole(text)
 			elseif v[1] == 2 then
 				local text = valuetoprintable(unpack(v[2]))
 				printconsole("[" .. BBOT.alias .. "] " .. text)
 			elseif v[1] == 3 then
 				local text = valuetoprintable(unpack(v[2]))
-				printconsole("[" .. BBOT.alias .. "] [WARN] " .. text, 240, 240, 0)
+				printconsole("[" .. BBOT.alias .. "] [WARN] " .. text)
 			elseif v[1] == 4 then
 				local text = valuetoprintable(unpack(v[2]))
-				printconsole("[" .. BBOT.alias .. "] [DEBUG] " .. text, 0, 120, 240)
+				printconsole("[" .. BBOT.alias .. "] [DEBUG] " .. text)
 			elseif v[1] == 5 then
 				local text = valuetoprintable(unpack(v[2]))
-				printconsole("[" .. BBOT.alias .. "] [ERROR] " .. text, 240, 0, 0)
+				printconsole("[" .. BBOT.alias .. "] [ERROR] " .. text)
 			end
 		end
 		scheduler = {}
 	end)
-	]]
 
 	function log.error(...)
 		log.printerror(...)
@@ -2343,6 +2362,556 @@ do
 	end
 end
 
+-- ============================================================
+-- Drawing Dynamic Compatibility Layer for Potassium
+-- Defines XAlignment, YAlignment, Point classes, Dynamic classes,
+-- ImageRef, and Font stubs required by the draw system.
+-- ============================================================
+do
+	-- Alignment Enums
+	XAlignment = { Right = 0, Center = 1, Left = 2 }
+	YAlignment = { Bottom = 0, Center = 1, Top = 2 }
+
+	-- ImageRef stub: wraps raw image data for Drawing.new("Image")
+	ImageRef = {}
+	function ImageRef.new(data)
+		return { Data = data, ImageSize = Vector2.new(0, 0) }
+	end
+
+	-- Font stubs for Potassium (uses numeric font IDs)
+	if not Font then
+		Font = {}
+		function Font.Register(fontData, args)
+			return 2 -- default to Plex
+		end
+		function Font.RegisterDefault(fontName, args)
+			return 2
+		end
+		function Font.ListDefault()
+			return {"IBMPlexMono_Medium", "IBMPlexMono_Bold", "Monospace", "System", "UI"}
+		end
+	end
+
+	-- ==================== POINT CLASSES ====================
+
+	-- Point2D: Simple 2D screen point
+	Point2D = {}
+	function Point2D.new()
+		local t = { _pos = Vector2.new(0, 0) }
+		return setmetatable(t, {
+			__index = function(self, key)
+				if key == "ScreenPos" or key == "Point" then return rawget(self, "_pos") end
+				if key == "Visible" then return true end
+			end,
+			__newindex = function(self, key, value)
+				if key == "ScreenPos" or key == "Point" or key == "PointVec2" then
+					rawset(self, "_pos", value)
+				end
+			end,
+		})
+	end
+
+	-- Point3D: World-space point projected to screen
+	Point3D = {}
+	function Point3D.new()
+		local t = { _point = Vector3.new(0, 0, 0), _screenpos = Vector2.new(0, 0), _visible = false }
+		return setmetatable(t, {
+			__index = function(self, key)
+				if key == "ScreenPos" then
+					local cam = workspace.CurrentCamera
+					if not cam then return Vector2.new(0, 0) end
+					local sp, onscreen = cam:WorldToViewportPoint(rawget(self, "_point"))
+					rawset(self, "_screenpos", Vector2.new(sp.X, sp.Y))
+					rawset(self, "_visible", onscreen)
+					return rawget(self, "_screenpos")
+				end
+				if key == "Visible" then
+					local cam = workspace.CurrentCamera
+					if not cam then return false end
+					local _, onscreen = cam:WorldToViewportPoint(rawget(self, "_point"))
+					return onscreen
+				end
+				if key == "Point" then return rawget(self, "_point") end
+			end,
+			__newindex = function(self, key, value)
+				if key == "Point" then rawset(self, "_point", value) end
+			end,
+		})
+	end
+
+	-- PointInstance: Follows a Roblox Instance
+	PointInstance = {}
+	function PointInstance.new()
+		local t = { _instance = nil, _offset = Vector3.new(0,0,0), _ignorerotation = false, _worldpos = Vector3.new(0,0,0) }
+		return setmetatable(t, {
+			__index = function(self, key)
+				if key == "ScreenPos" then
+					local inst = rawget(self, "_instance")
+					if not inst then return Vector2.new(0, 0) end
+					local pos = (inst.Position or inst.CFrame.Position) + rawget(self, "_offset")
+					rawset(self, "_worldpos", pos)
+					local cam = workspace.CurrentCamera
+					if not cam then return Vector2.new(0, 0) end
+					local sp, onscreen = cam:WorldToViewportPoint(pos)
+					return Vector2.new(sp.X, sp.Y)
+				end
+				if key == "Visible" then
+					local inst = rawget(self, "_instance")
+					if not inst then return false end
+					local pos = (inst.Position or inst.CFrame.Position) + rawget(self, "_offset")
+					local cam = workspace.CurrentCamera
+					if not cam then return false end
+					local _, onscreen = cam:WorldToViewportPoint(pos)
+					return onscreen
+				end
+				if key == "Instance" then return rawget(self, "_instance") end
+				if key == "Offset" then return rawget(self, "_offset") end
+				if key == "IgnoreRotation" then return rawget(self, "_ignorerotation") end
+				if key == "WorldPos" then return rawget(self, "_worldpos") end
+			end,
+			__newindex = function(self, key, value)
+				if key == "Instance" then rawset(self, "_instance", value)
+				elseif key == "Offset" then rawset(self, "_offset", value)
+				elseif key == "IgnoreRotation" then rawset(self, "_ignorerotation", value)
+				elseif key == "WorldPos" then rawset(self, "_worldpos", value)
+				end
+			end,
+		})
+	end
+
+	-- PointMouse: Follows mouse cursor
+	PointMouse = {}
+	function PointMouse.new()
+		local mouse = game:GetService("Players").LocalPlayer:GetMouse()
+		local t = { _mouse = mouse }
+		return setmetatable(t, {
+			__index = function(self, key)
+				if key == "ScreenPos" then
+					local m = rawget(self, "_mouse")
+					return Vector2.new(m.X, m.Y)
+				end
+				if key == "Visible" then return true end
+			end,
+			__newindex = function() end,
+		})
+	end
+
+	-- PointOffset: Adds a Vector2 offset to a base point
+	PointOffset = {}
+	function PointOffset.new(basePoint)
+		local t = { _base = basePoint, _offset = Vector2.new(0, 0) }
+		return setmetatable(t, {
+			__index = function(self, key)
+				if key == "ScreenPos" then
+					local base = rawget(self, "_base")
+					local basePos = base and base.ScreenPos or Vector2.new(0, 0)
+					return basePos + rawget(self, "_offset")
+				end
+				if key == "Visible" then
+					local base = rawget(self, "_base")
+					return base and base.Visible or true
+				end
+				if key == "Offset" then return rawget(self, "_offset") end
+				if key == "Point" then return rawget(self, "_base") end
+			end,
+			__newindex = function(self, key, value)
+				if key == "Offset" then rawset(self, "_offset", value)
+				elseif key == "Point" then rawset(self, "_base", value)
+				end
+			end,
+		})
+	end
+
+	-- ==================== DYNAMIC CLASSES ====================
+	-- Each wraps Drawing.new() and stores point references.
+	-- A render loop updates positions from points each frame.
+
+	local function makeDynamicMeta(props)
+		return {
+			__index = function(self, key)
+				if props[key] then return props[key](self, key) end
+				local d = rawget(self, "_drawing")
+				if d then
+					local ok, val = pcall(function() return d[key] end)
+					if ok then return val end
+				end
+			end,
+			__newindex = function(self, key, value)
+				local setters = rawget(self, "_setters")
+				if setters and setters[key] then setters[key](self, value) return end
+				local d = rawget(self, "_drawing")
+				if d then pcall(function() d[key] = value end) end
+			end,
+		}
+	end
+
+	-- LineDynamic: wraps Drawing.new("Line"), takes 2 points
+	LineDynamic = {}
+	function LineDynamic.new(point1, point2)
+		local drawing = Drawing.new("Line")
+		drawing.Visible = false
+		drawing.Thickness = 1
+		drawing.Color = Color3.new(1,1,1)
+		local outline = Drawing.new("Line")
+		outline.Visible = false
+		outline.Thickness = 3
+		outline.Color = Color3.new(0,0,0)
+		local self = {
+			_drawing = drawing, _outline = outline,
+			_point1 = point1, _point2 = point2,
+			_visible = false, _opacity = 1, _zindex = 0,
+			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
+			_xalignment = 0, _yalignment = 0,
+		}
+		self._setters = {
+			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v; if s._outlined then s._outline.Visible = v end end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v; s._outline.ZIndex = v - 1 end,
+			Color = function(s, v) s._drawing.Color = v end,
+			Thickness = function(s, v) s._drawing.Thickness = v; s._outline.Thickness = v + (rawget(s,"_outlinethickness") or 1)*2 end,
+			Outlined = function(s, v) rawset(s, "_outlined", v); s._outline.Visible = v and rawget(s,"_visible") or false end,
+			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v); s._outline.Color = v end,
+			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v); s._outline.Transparency = 1 - v end,
+			OutlineThickness = function(s, v) rawset(s, "_outlinethickness", v); s._outline.Thickness = s._drawing.Thickness + v*2 end,
+			XAlignment = function(s, v) rawset(s, "_xalignment", v) end,
+			YAlignment = function(s, v) rawset(s, "_yalignment", v) end,
+		}
+		local props = {
+			Visible = function(s) return rawget(s, "_visible") end,
+			Opacity = function(s) return rawget(s, "_opacity") end,
+			ZIndex = function(s) return rawget(s, "_zindex") end,
+			Color = function(s) return s._drawing.Color end,
+			Thickness = function(s) return s._drawing.Thickness end,
+			Outlined = function(s) return rawget(s, "_outlined") end,
+			OutlineColor = function(s) return rawget(s, "_outlinecolor") end,
+			OutlineOpacity = function(s) return rawget(s, "_outlineopacity") end,
+			OutlineThickness = function(s) return rawget(s, "_outlinethickness") end,
+			XAlignment = function(s) return rawget(s, "_xalignment") end,
+			YAlignment = function(s) return rawget(s, "_yalignment") end,
+		}
+		return setmetatable(self, makeDynamicMeta(props))
+	end
+
+	-- TextDynamic: wraps Drawing.new("Text"), takes 1 point
+	TextDynamic = {}
+	function TextDynamic.new(point)
+		local drawing = Drawing.new("Text")
+		drawing.Visible = false
+		drawing.Size = 16
+		drawing.Color = Color3.new(1,1,1)
+		local self = {
+			_drawing = drawing, _point = point,
+			_visible = false, _opacity = 1, _zindex = 0,
+			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
+			_xalignment = 0, _yalignment = 0, _textxalignment = 0,
+		}
+		self._setters = {
+			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v end,
+			Color = function(s, v) s._drawing.Color = v end,
+			Text = function(s, v) s._drawing.Text = tostring(v or "") end,
+			Size = function(s, v) s._drawing.Size = v end,
+			Font = function(s, v) s._drawing.Font = v end,
+			Position = function(s, v) s._drawing.Position = v end,
+			Outlined = function(s, v) rawset(s, "_outlined", v); s._drawing.Outline = v end,
+			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v); s._drawing.OutlineColor = v end,
+			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v) end,
+			OutlineThickness = function(s, v) rawset(s, "_outlinethickness", v) end,
+			XAlignment = function(s, v) rawset(s, "_xalignment", v) end,
+			YAlignment = function(s, v) rawset(s, "_yalignment", v) end,
+			TextXAlignment = function(s, v) rawset(s, "_textxalignment", v) end,
+		}
+		local props = {
+			Visible = function(s) return rawget(s, "_visible") end,
+			Opacity = function(s) return rawget(s, "_opacity") end,
+			ZIndex = function(s) return rawget(s, "_zindex") end,
+			Color = function(s) return s._drawing.Color end,
+			Text = function(s) return s._drawing.Text end,
+			TextBounds = function(s) return s._drawing.TextBounds or Vector2.new(0, 0) end,
+			Size = function(s) return s._drawing.Size end,
+			Font = function(s) return s._drawing.Font end,
+			Position = function(s) return s._drawing.Position end,
+			Outlined = function(s) return rawget(s, "_outlined") end,
+			OutlineColor = function(s) return rawget(s, "_outlinecolor") end,
+			OutlineOpacity = function(s) return rawget(s, "_outlineopacity") end,
+			OutlineThickness = function(s) return rawget(s, "_outlinethickness") end,
+			XAlignment = function(s) return rawget(s, "_xalignment") end,
+			YAlignment = function(s) return rawget(s, "_yalignment") end,
+			TextXAlignment = function(s) return rawget(s, "_textxalignment") end,
+		}
+		return setmetatable(self, makeDynamicMeta(props))
+	end
+
+	-- CircleDynamic: wraps Drawing.new("Circle"), takes 1 point
+	CircleDynamic = {}
+	function CircleDynamic.new(point)
+		local drawing = Drawing.new("Circle")
+		drawing.Visible = false
+		drawing.Radius = 50
+		drawing.Color = Color3.new(1,1,1)
+		local self = {
+			_drawing = drawing, _point = point,
+			_visible = false, _opacity = 1, _zindex = 0,
+			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
+			_xalignment = 1, _yalignment = 1, _edge = 0,
+		}
+		self._setters = {
+			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v end,
+			Color = function(s, v) s._drawing.Color = v end,
+			Thickness = function(s, v) s._drawing.Thickness = v end,
+			Radius = function(s, v) s._drawing.Radius = v end,
+			NumSides = function(s, v) s._drawing.NumSides = v end,
+			Filled = function(s, v) s._drawing.Filled = v end,
+			Position = function(s, v) s._drawing.Position = v end,
+			Edge = function(s, v) rawset(s, "_edge", v) end,
+			Outlined = function(s, v) rawset(s, "_outlined", v) end,
+			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v) end,
+			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v) end,
+			OutlineThickness = function(s, v) rawset(s, "_outlinethickness", v) end,
+			XAlignment = function(s, v) rawset(s, "_xalignment", v) end,
+			YAlignment = function(s, v) rawset(s, "_yalignment", v) end,
+		}
+		local props = {
+			Visible = function(s) return rawget(s, "_visible") end,
+			Opacity = function(s) return rawget(s, "_opacity") end,
+			ZIndex = function(s) return rawget(s, "_zindex") end,
+			Color = function(s) return s._drawing.Color end,
+			Thickness = function(s) return s._drawing.Thickness end,
+			Radius = function(s) return s._drawing.Radius end,
+			NumSides = function(s) return s._drawing.NumSides end,
+			Filled = function(s) return s._drawing.Filled end,
+			Position = function(s) return s._drawing.Position end,
+			Edge = function(s) return rawget(s, "_edge") end,
+			Outlined = function(s) return rawget(s, "_outlined") end,
+			OutlineColor = function(s) return rawget(s, "_outlinecolor") end,
+			OutlineOpacity = function(s) return rawget(s, "_outlineopacity") end,
+			OutlineThickness = function(s) return rawget(s, "_outlinethickness") end,
+			XAlignment = function(s) return rawget(s, "_xalignment") end,
+			YAlignment = function(s) return rawget(s, "_yalignment") end,
+		}
+		return setmetatable(self, makeDynamicMeta(props))
+	end
+
+	-- RectDynamic: wraps Drawing.new("Square"), takes 1 point
+	RectDynamic = {}
+	function RectDynamic.new(point)
+		local drawing = Drawing.new("Square")
+		drawing.Visible = false
+		drawing.Size = Vector2.new(50, 50)
+		drawing.Color = Color3.new(1,1,1)
+		local self = {
+			_drawing = drawing, _point = point,
+			_visible = false, _opacity = 1, _zindex = 0,
+			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
+			_xalignment = 0, _yalignment = 0, _rounding = 0,
+		}
+		self._setters = {
+			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v end,
+			Color = function(s, v) s._drawing.Color = v end,
+			Thickness = function(s, v) s._drawing.Thickness = v end,
+			Size = function(s, v) s._drawing.Size = v end,
+			Filled = function(s, v) s._drawing.Filled = v end,
+			Rounding = function(s, v) rawset(s, "_rounding", v) end,
+			Outlined = function(s, v) rawset(s, "_outlined", v) end,
+			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v) end,
+			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v) end,
+			OutlineThickness = function(s, v) rawset(s, "_outlinethickness", v) end,
+			XAlignment = function(s, v) rawset(s, "_xalignment", v) end,
+			YAlignment = function(s, v) rawset(s, "_yalignment", v) end,
+		}
+		local props = {
+			Visible = function(s) return rawget(s, "_visible") end,
+			Opacity = function(s) return rawget(s, "_opacity") end,
+			ZIndex = function(s) return rawget(s, "_zindex") end,
+			Color = function(s) return s._drawing.Color end,
+			Thickness = function(s) return s._drawing.Thickness end,
+			Size = function(s) return s._drawing.Size end,
+			Filled = function(s) return s._drawing.Filled end,
+			Rounding = function(s) return rawget(s, "_rounding") end,
+			Outlined = function(s) return rawget(s, "_outlined") end,
+			OutlineColor = function(s) return rawget(s, "_outlinecolor") end,
+			OutlineOpacity = function(s) return rawget(s, "_outlineopacity") end,
+			OutlineThickness = function(s) return rawget(s, "_outlinethickness") end,
+			XAlignment = function(s) return rawget(s, "_xalignment") end,
+			YAlignment = function(s) return rawget(s, "_yalignment") end,
+		}
+		return setmetatable(self, makeDynamicMeta(props))
+	end
+
+	-- GradientRectDynamic: multi-strip gradient, takes 1 point
+	GradientRectDynamic = {}
+	function GradientRectDynamic.new(point)
+		local STRIPS = 12
+		local strips = {}
+		for i = 1, STRIPS do
+			local s = Drawing.new("Square")
+			s.Visible = false
+			s.Filled = true
+			strips[i] = s
+		end
+		local self = {
+			_drawing = strips[1], _strips = strips, _point = point,
+			_visible = false, _opacity = 1, _zindex = 0,
+			_size = Vector2.new(50, 50),
+			_colorUL = Color3.new(1,1,1), _colorUR = Color3.new(1,1,1),
+			_colorBL = Color3.new(0,0,0), _colorBR = Color3.new(0,0,0),
+			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
+			_xalignment = 0, _yalignment = 0, _thickness = 0,
+		}
+		self._setters = {
+			Visible = function(s, v) rawset(s, "_visible", v); for _, st in ipairs(rawget(s, "_strips")) do st.Visible = v end end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); for _, st in ipairs(rawget(s, "_strips")) do st.Transparency = 1-v end end,
+			ZIndex = function(s, v) rawset(s, "_zindex", v); for _, st in ipairs(rawget(s, "_strips")) do st.ZIndex = v end end,
+			Color = function(s, v) rawset(s, "_colorUL", v); rawset(s, "_colorUR", v); rawset(s, "_colorBL", v); rawset(s, "_colorBR", v) end,
+			Size = function(s, v) rawset(s, "_size", v) end,
+			Thickness = function(s, v) rawset(s, "_thickness", v) end,
+			ColorUpperLeft = function(s, v) rawset(s, "_colorUL", v) end,
+			ColorUpperRight = function(s, v) rawset(s, "_colorUR", v) end,
+			ColorBottomLeft = function(s, v) rawset(s, "_colorBL", v) end,
+			ColorBottomRight = function(s, v) rawset(s, "_colorBR", v) end,
+			Outlined = function(s, v) rawset(s, "_outlined", v) end,
+			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v) end,
+			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v) end,
+			OutlineThickness = function(s, v) rawset(s, "_outlinethickness", v) end,
+			XAlignment = function(s, v) rawset(s, "_xalignment", v) end,
+			YAlignment = function(s, v) rawset(s, "_yalignment", v) end,
+		}
+		local props = {
+			Visible = function(s) return rawget(s, "_visible") end,
+			Opacity = function(s) return rawget(s, "_opacity") end,
+			ZIndex = function(s) return rawget(s, "_zindex") end,
+			Size = function(s) return rawget(s, "_size") end,
+			Thickness = function(s) return rawget(s, "_thickness") end,
+			Color = function(s) return rawget(s, "_colorUL") end,
+			ColorUpperLeft = function(s) return rawget(s, "_colorUL") end,
+			ColorUpperRight = function(s) return rawget(s, "_colorUR") end,
+			ColorBottomLeft = function(s) return rawget(s, "_colorBL") end,
+			ColorBottomRight = function(s) return rawget(s, "_colorBR") end,
+			Outlined = function(s) return rawget(s, "_outlined") end,
+			OutlineColor = function(s) return rawget(s, "_outlinecolor") end,
+			OutlineOpacity = function(s) return rawget(s, "_outlineopacity") end,
+			OutlineThickness = function(s) return rawget(s, "_outlinethickness") end,
+			XAlignment = function(s) return rawget(s, "_xalignment") end,
+			YAlignment = function(s) return rawget(s, "_yalignment") end,
+		}
+		return setmetatable(self, makeDynamicMeta(props))
+	end
+
+	-- ImageDynamic: wraps Drawing.new("Image"), takes 1 point
+	ImageDynamic = {}
+	function ImageDynamic.new(point)
+		local drawing = Drawing.new("Image")
+		drawing.Visible = false
+		drawing.Size = Vector2.new(50, 50)
+		local self = {
+			_drawing = drawing, _point = point,
+			_visible = false, _opacity = 1, _zindex = 0,
+			_image = nil, _imagesize = Vector2.new(0, 0),
+			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
+			_xalignment = 0, _yalignment = 0, _rounding = 0,
+		}
+		self._setters = {
+			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v end,
+			Color = function(s, v) pcall(function() s._drawing.Color = v end) end,
+			Image = function(s, v)
+				rawset(s, "_image", v)
+				if type(v) == "table" and v.Data then
+					pcall(function() s._drawing.Data = v.Data end)
+					if v.ImageSize then rawset(s, "_imagesize", v.ImageSize) end
+				elseif type(v) == "string" then
+					pcall(function() s._drawing.Data = v end)
+				end
+			end,
+			Size = function(s, v) rawset(s, "_size_override", v); s._drawing.Size = v end,
+			Position = function(s, v) s._drawing.Position = v end,
+			Rounding = function(s, v) rawset(s, "_rounding", v) end,
+			Outlined = function(s, v) rawset(s, "_outlined", v) end,
+			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v) end,
+			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v) end,
+			OutlineThickness = function(s, v) rawset(s, "_outlinethickness", v) end,
+			XAlignment = function(s, v) rawset(s, "_xalignment", v) end,
+			YAlignment = function(s, v) rawset(s, "_yalignment", v) end,
+		}
+		local props = {
+			Visible = function(s) return rawget(s, "_visible") end,
+			Opacity = function(s) return rawget(s, "_opacity") end,
+			ZIndex = function(s) return rawget(s, "_zindex") end,
+			Color = function(s) return s._drawing.Color end,
+			Image = function(s) return rawget(s, "_image") end,
+			ImageSize = function(s) return rawget(s, "_imagesize") end,
+			Size = function(s) return s._drawing.Size end,
+			Position = function(s) return s._drawing.Position end,
+			Rounding = function(s) return rawget(s, "_rounding") end,
+			Outlined = function(s) return rawget(s, "_outlined") end,
+			OutlineColor = function(s) return rawget(s, "_outlinecolor") end,
+			OutlineOpacity = function(s) return rawget(s, "_outlineopacity") end,
+			OutlineThickness = function(s) return rawget(s, "_outlinethickness") end,
+			XAlignment = function(s) return rawget(s, "_xalignment") end,
+			YAlignment = function(s) return rawget(s, "_yalignment") end,
+		}
+		return setmetatable(self, makeDynamicMeta(props))
+	end
+
+	-- PolyLineDynamic: multiple connected lines, takes array of points
+	PolyLineDynamic = {}
+	function PolyLineDynamic.new(points)
+		local lines = {}
+		if #points > 1 then
+			for i = 1, #points - 1 do
+				local l = Drawing.new("Line")
+				l.Visible = false
+				l.Thickness = 1
+				l.Color = Color3.new(1,1,1)
+				lines[i] = l
+			end
+		end
+		local self = {
+			_drawing = lines[1] or Drawing.new("Line"), _lines = lines, _points_raw = points,
+			_visible = false, _opacity = 1, _zindex = 0,
+			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
+			_filltype = 0,
+		}
+		self._setters = {
+			Visible = function(s, v) rawset(s, "_visible", v); for _, l in ipairs(rawget(s, "_lines")) do l.Visible = v end end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); for _, l in ipairs(rawget(s, "_lines")) do l.Transparency = 1-v end end,
+			ZIndex = function(s, v) rawset(s, "_zindex", v); for _, l in ipairs(rawget(s, "_lines")) do l.ZIndex = v end end,
+			Color = function(s, v) for _, l in ipairs(rawget(s, "_lines")) do l.Color = v end end,
+			Thickness = function(s, v) for _, l in ipairs(rawget(s, "_lines")) do l.Thickness = v end end,
+			Points = function(s, v) rawset(s, "_points_raw", v) end,
+			FillType = function(s, v) rawset(s, "_filltype", v) end,
+			Outlined = function(s, v) rawset(s, "_outlined", v) end,
+			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v) end,
+			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v) end,
+			OutlineThickness = function(s, v) rawset(s, "_outlinethickness", v) end,
+		}
+		local props = {
+			Visible = function(s) return rawget(s, "_visible") end,
+			Opacity = function(s) return rawget(s, "_opacity") end,
+			ZIndex = function(s) return rawget(s, "_zindex") end,
+			Color = function(s) local ls = rawget(s,"_lines"); return ls[1] and ls[1].Color or Color3.new(1,1,1) end,
+			Thickness = function(s) local ls = rawget(s,"_lines"); return ls[1] and ls[1].Thickness or 1 end,
+			Points = function(s) return rawget(s, "_points_raw") end,
+			FillType = function(s) return rawget(s, "_filltype") end,
+			ReTriangulate = function(s) return nil end,
+			Outlined = function(s) return rawget(s, "_outlined") end,
+			OutlineColor = function(s) return rawget(s, "_outlinecolor") end,
+			OutlineOpacity = function(s) return rawget(s, "_outlineopacity") end,
+			OutlineThickness = function(s) return rawget(s, "_outlinethickness") end,
+		}
+		return setmetatable(self, makeDynamicMeta(props))
+	end
+end
+-- ============================================================
+-- End Drawing Dynamic Compatibility Layer
+-- ============================================================
+
 -- Draw-Dyn - A sub-library to the drawing dynamic library with it's own referencing system
 -- Similar to drawing depreciated for them OG people.
 -- Note: this uses some of Bitch Bot's libraries, try to compensate by making your own!
@@ -2527,7 +3096,6 @@ do
 			["Thickness"] = 2,
 		}, extramethods, 2)
 	]]
-	--[[ Drawing Dynamic classes not available - commented out
 	draw:RegisterPoint(function(...)
 		return PointOffset.new(Point2D.new(...))
 	end, "2V", {
@@ -2607,7 +3175,6 @@ do
 		["XAlignment"] = 2,
 		["YAlignment"] = 2,
 	})
-	]]
 
     -- Hello are you around?
     function draw:IsValid(object)
@@ -2892,6 +3459,105 @@ do
 		end
 		return new_object
 	end
+
+	-- Render loop: updates Drawing positions from points each frame
+	hook:Add("RenderStepped", "BBOT:Draw.PositionUpdate", function()
+		local registry = draw.registry
+		for i = 1, #registry do
+			local obj = registry[i]
+			if not obj or rawget(obj, "__INVALID") then continue end
+			local dynamic = rawget(obj, "dynamic")
+			if not dynamic then continue end
+			local cls = rawget(obj, "class")
+
+			if cls == "Line" then
+				local p1 = rawget(obj, "point1")
+				local p2 = rawget(obj, "point2")
+				if p1 and p2 then
+					local s1 = p1.ScreenPos
+					local s2 = p2.ScreenPos
+					local d = rawget(dynamic, "_drawing")
+					local ol = rawget(dynamic, "_outline")
+					if d and s1 and s2 then
+						d.From = s1
+						d.To = s2
+						if ol and rawget(dynamic, "_outlined") then
+							ol.From = s1
+							ol.To = s2
+						end
+					end
+				end
+			elseif cls == "PolyLine" then
+				local pts = rawget(obj, "points")
+				local lines = rawget(dynamic, "_lines")
+				if pts and lines then
+					for j = 1, #lines do
+						local pA = pts[j]
+						local pB = pts[j + 1]
+						if pA and pB then
+							lines[j].From = pA.ScreenPos
+							lines[j].To = pB.ScreenPos
+						end
+					end
+				end
+			elseif cls == "Gradient" then
+				local p = rawget(obj, "point")
+				if p then
+					local screenPos = p.ScreenPos
+					local strips = rawget(dynamic, "_strips")
+					local size = rawget(dynamic, "_size") or Vector2.new(50, 50)
+					local cUL = rawget(dynamic, "_colorUL") or Color3.new(1,1,1)
+					local cUR = rawget(dynamic, "_colorUR") or Color3.new(1,1,1)
+					local cBL = rawget(dynamic, "_colorBL") or Color3.new(0,0,0)
+					local cBR = rawget(dynamic, "_colorBR") or Color3.new(0,0,0)
+					if strips and screenPos then
+						local n = #strips
+						local stripH = size.Y / n
+						for j = 1, n do
+							local t = (j - 0.5) / n
+							local leftColor = Color3.new(
+								cUL.R + (cBL.R - cUL.R) * t,
+								cUL.G + (cBL.G - cUL.G) * t,
+								cUL.B + (cBL.B - cUL.B) * t
+							)
+							local rightColor = Color3.new(
+								cUR.R + (cBR.R - cUR.R) * t,
+								cUR.G + (cBR.G - cUR.G) * t,
+								cUR.B + (cBR.B - cUR.B) * t
+							)
+							-- Average left and right for single color per strip
+							local avgColor = Color3.new(
+								(leftColor.R + rightColor.R) / 2,
+								(leftColor.G + rightColor.G) / 2,
+								(leftColor.B + rightColor.B) / 2
+							)
+							strips[j].Position = screenPos + Vector2.new(0, (j-1) * stripH)
+							strips[j].Size = Vector2.new(size.X, stripH + 1)
+							strips[j].Color = avgColor
+						end
+					end
+				end
+			else
+				-- Text, Circle, Rect, Image - single point
+				local p = rawget(obj, "point")
+				if p then
+					local screenPos = p.ScreenPos
+					if screenPos then
+						local d = rawget(dynamic, "_drawing")
+						if d then
+							if cls == "Text" then
+								d.Position = screenPos
+							elseif cls == "Image" then
+								d.Position = screenPos
+							else
+								d.Position = screenPos
+							end
+						end
+					end
+				end
+			end
+		end
+	end)
 
     -- Allow hot-loading the script over and over...
 	-- Replace this with your own way of doing this
@@ -24446,7 +25112,7 @@ do
 			BBOT.notification:Create("!!! WARNING !!!\nThe following debugging features are enabled:\n" .. table.concat(dbgfeatures, "\n"), 30):SetType("alert")
 		end
 
-		BBOT.notification:Create("!!! IMPORTANT !!!\nThis is the Synapse 3.0 version,\nthere may be a lot of internal issues!\nReport any issues to WholeCream!", 30):SetType("alert")
+		BBOT.notification:Create("!!! IMPORTANT !!!\nThis is the Potassium version,\nthere may be a lot of internal issues!\nReport any issues to WholeCream!", 30):SetType("alert")
 		BBOT.notification:Create("!!! IMPORTANT !!!\nScripts system has been enabled, you have full access to the bitch bot environment!", 10):SetType("alert")
 		if _BBOT then
 			BBOT.notification:Create("There was an already active version of bbot running, this has been unloaded")
