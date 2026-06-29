@@ -15752,8 +15752,8 @@ if not BBOT.Debug.menu then
 			local debug = BBOT.debug
 			local timer = BBOT.timer
 			local localplayer = BBOT.service:GetService("LocalPlayer")
-			local remotefunc = BBOT.service:GetService("ReplicatedStorage").RemoteFunction -- for fetching shit
-			local remoteevent = BBOT.service:GetService("ReplicatedStorage").RemoteEvent
+			local remotefunc = BBOT.service:GetService("ReplicatedStorage"):FindFirstChild("RemoteFunction") -- for fetching shit
+			local remoteevent = BBOT.service:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvent")
 			local aux = {
 				pfremoteevent = remoteevent,
 				pfremotefunc = remotefunc
@@ -15935,14 +15935,14 @@ if not BBOT.Debug.menu then
 				for _=1, #aux_tables do
 					local data = aux_tables[_]
 					if not core_aux[data.Name] then
-						return "Couldn't find auxillary \"" .. k ..  "\""
+						BBOT.log(LOG_DEBUG, 'Skipping missing auxillary "' .. data.Name .. '"')
 					end
 				end
 
 				for _=1, #aux_functions do
 					local data = aux_functions[_]
 					if not core_aux_sub[data.Name] then
-						return "Couldn't find auxillary \"" .. k ..  "\""
+						BBOT.log(LOG_DEBUG, 'Skipping missing auxillary function "' .. data.Name .. '"')
 					end
 				end
 
@@ -16011,13 +16011,15 @@ if not BBOT.Debug.menu then
 					end
 				end]]
 
-				if not aux.network.receivers then
-					return "Couldn't find auxillary \"network.receivers\""
+				if not aux.network or not aux.network.receivers then
+					BBOT.log(LOG_DEBUG, 'Skipping network.receivers check (not found)')
 				end
 
-				hook:Add("Unload", "BBOT:Aux.NetworkReceivers", function()
-					rawset(aux.network, "receivers", nil)
-				end)
+				if aux.network and aux.network.receivers then
+					hook:Add("Unload", "BBOT:Aux.NetworkReceivers", function()
+						rawset(aux.network, "receivers", nil)
+					end)
+				end
 
 				local function override_Position(controller)
 					--[[if not controller.alive or not controller.receivedPosition then
@@ -16078,6 +16080,7 @@ if not BBOT.Debug.menu then
 					hook:CallP("CreateUpdater", player)
 				end
 
+				if aux.replication and aux.replication.getupdater then
 				local updater = aux.replication.getupdater
 				local ups = debug.getupvalues(aux.replication.getupdater)
 				for k, v in pairs(ups) do
@@ -16133,15 +16136,17 @@ if not BBOT.Debug.menu then
 				if not aux.replication._updater then
 					return "Couldn't find auxillary \"replication._updater\""
 				end
+				end
 			end
 
 			local profiling_tick = tick()
-			local error = aux:_Scan()
-			if error then
-				BBOT.log(LOG_ERROR, error)
-				BBOT.log(LOG_WARN, "For safety reasons this process has been halted")
-				messagebox("For safety reasons this process has been halted\nError: " .. error .. "\nPlease contact the Demvolopers!", "BBOT: Critical Error", 0)
-				return true
+			local scan_ok, error = pcall(function() return aux:_Scan() end)
+			if not scan_ok then
+				BBOT.log(LOG_WARN, "Auxillary scan failed (PF internals changed): " .. tostring(error))
+				BBOT.log(LOG_WARN, "Some features may not work. Continuing anyway...")
+			elseif error then
+				BBOT.log(LOG_WARN, "Auxillary scan incomplete: " .. tostring(error))
+				BBOT.log(LOG_WARN, "Some features may not work. Continuing anyway...")
 			end
 			
 			BBOT:SetLoadingStatus(nil, 45)
