@@ -2548,13 +2548,13 @@ do
 		}
 		self._setters = {
 			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v; if s._outlined then s._outline.Visible = v end end,
-			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = v end,
 			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v; s._outline.ZIndex = v - 1 end,
 			Color = function(s, v) s._drawing.Color = v end,
 			Thickness = function(s, v) s._drawing.Thickness = v; s._outline.Thickness = v + (rawget(s,"_outlinethickness") or 1)*2 end,
 			Outlined = function(s, v) rawset(s, "_outlined", v); s._outline.Visible = v and rawget(s,"_visible") or false end,
 			OutlineColor = function(s, v) rawset(s, "_outlinecolor", v); s._outline.Color = v end,
-			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v); s._outline.Transparency = 1 - v end,
+			OutlineOpacity = function(s, v) rawset(s, "_outlineopacity", v); s._outline.Transparency = v end,
 			OutlineThickness = function(s, v) rawset(s, "_outlinethickness", v); s._outline.Thickness = s._drawing.Thickness + v*2 end,
 			XAlignment = function(s, v) rawset(s, "_xalignment", v) end,
 			YAlignment = function(s, v) rawset(s, "_yalignment", v) end,
@@ -2590,7 +2590,7 @@ do
 		}
 		self._setters = {
 			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v end,
-			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = v end,
 			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v end,
 			Color = function(s, v) s._drawing.Color = v end,
 			Text = function(s, v) s._drawing.Text = tostring(v or "") end,
@@ -2641,7 +2641,7 @@ do
 		}
 		self._setters = {
 			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v end,
-			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = v end,
 			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v end,
 			Color = function(s, v) s._drawing.Color = v end,
 			Thickness = function(s, v) s._drawing.Thickness = v end,
@@ -2693,7 +2693,7 @@ do
 		}
 		self._setters = {
 			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v end,
-			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = v end,
 			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v end,
 			Color = function(s, v) s._drawing.Color = v end,
 			Thickness = function(s, v) s._drawing.Thickness = v end,
@@ -2748,7 +2748,7 @@ do
 		}
 		self._setters = {
 			Visible = function(s, v) rawset(s, "_visible", v); for _, st in ipairs(rawget(s, "_strips")) do st.Visible = v end end,
-			Opacity = function(s, v) rawset(s, "_opacity", v); for _, st in ipairs(rawget(s, "_strips")) do st.Transparency = 1-v end end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); for _, st in ipairs(rawget(s, "_strips")) do st.Transparency = v end end,
 			ZIndex = function(s, v) rawset(s, "_zindex", v); for _, st in ipairs(rawget(s, "_strips")) do st.ZIndex = v end end,
 			Color = function(s, v) rawset(s, "_colorUL", v); rawset(s, "_colorUR", v); rawset(s, "_colorBL", v); rawset(s, "_colorBR", v) end,
 			Size = function(s, v) rawset(s, "_size", v) end,
@@ -2800,7 +2800,7 @@ do
 		}
 		self._setters = {
 			Visible = function(s, v) rawset(s, "_visible", v); s._drawing.Visible = v end,
-			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = 1 - v end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); s._drawing.Transparency = v end,
 			ZIndex = function(s, v) rawset(s, "_zindex", v); s._drawing.ZIndex = v end,
 			Color = function(s, v) pcall(function() s._drawing.Color = v end) end,
 			Image = function(s, v)
@@ -2863,7 +2863,7 @@ do
 		}
 		self._setters = {
 			Visible = function(s, v) rawset(s, "_visible", v); for _, l in ipairs(rawget(s, "_lines")) do l.Visible = v end end,
-			Opacity = function(s, v) rawset(s, "_opacity", v); for _, l in ipairs(rawget(s, "_lines")) do l.Transparency = 1-v end end,
+			Opacity = function(s, v) rawset(s, "_opacity", v); for _, l in ipairs(rawget(s, "_lines")) do l.Transparency = v end end,
 			ZIndex = function(s, v) rawset(s, "_zindex", v); for _, l in ipairs(rawget(s, "_lines")) do l.ZIndex = v end end,
 			Color = function(s, v) for _, l in ipairs(rawget(s, "_lines")) do l.Color = v end end,
 			Thickness = function(s, v) for _, l in ipairs(rawget(s, "_lines")) do l.Thickness = v end end,
@@ -11077,7 +11077,10 @@ do
 					end
 				end;
 				waited = waited + 1
-				if waited > 12 then
+				if waited > 15 then
+					BBOT:SetLoadingStatus("Skipping PF version check (UI changed)...")
+					break
+				elseif waited > 12 then
 					BBOT:SetLoadingStatus("Something may be wrong... Contact the Demvolopers")
 				elseif waited > 8 then
 					BBOT:SetLoadingStatus("What the hell is taking so long?")
