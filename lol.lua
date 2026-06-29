@@ -10799,7 +10799,7 @@ do
 			self.starttime = tick()
 			self.endtime = tick() + (time or 7)
 			
-			local vec = self.text.Font:GetTextBounds(self.text.Size, self.content)
+			local vec = self.text.TextBounds
 			self.size = Vector2.new(10 + vec.X, vec.Y + 2)
 
 			-- linear interpolation
