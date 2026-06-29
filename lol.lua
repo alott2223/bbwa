@@ -2532,7 +2532,7 @@ do
 	LineDynamic = {}
 	function LineDynamic.new(point1, point2)
 		local drawing = Drawing.new("Line")
-		drawing.Visible = false
+		drawing.Visible = true
 		drawing.Thickness = 1
 		drawing.Color = Color3.new(1,1,1)
 		local outline = Drawing.new("Line")
@@ -2542,7 +2542,7 @@ do
 		local self = {
 			_drawing = drawing, _outline = outline,
 			_point1 = point1, _point2 = point2,
-			_visible = false, _opacity = 1, _zindex = 0,
+			_visible = true, _opacity = 1, _zindex = 0,
 			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
 			_xalignment = 0, _yalignment = 0,
 		}
@@ -2579,12 +2579,12 @@ do
 	TextDynamic = {}
 	function TextDynamic.new(point)
 		local drawing = Drawing.new("Text")
-		drawing.Visible = false
+		drawing.Visible = true
 		drawing.Size = 16
 		drawing.Color = Color3.new(1,1,1)
 		local self = {
 			_drawing = drawing, _point = point,
-			_visible = false, _opacity = 1, _zindex = 0,
+			_visible = true, _opacity = 1, _zindex = 0,
 			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
 			_xalignment = 0, _yalignment = 0, _textxalignment = 0,
 		}
@@ -2630,12 +2630,12 @@ do
 	CircleDynamic = {}
 	function CircleDynamic.new(point)
 		local drawing = Drawing.new("Circle")
-		drawing.Visible = false
+		drawing.Visible = true
 		drawing.Radius = 50
 		drawing.Color = Color3.new(1,1,1)
 		local self = {
 			_drawing = drawing, _point = point,
-			_visible = false, _opacity = 1, _zindex = 0,
+			_visible = true, _opacity = 1, _zindex = 0,
 			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
 			_xalignment = 1, _yalignment = 1, _edge = 0,
 		}
@@ -2682,12 +2682,12 @@ do
 	RectDynamic = {}
 	function RectDynamic.new(point)
 		local drawing = Drawing.new("Square")
-		drawing.Visible = false
+		drawing.Visible = true
 		drawing.Size = Vector2.new(50, 50)
 		drawing.Color = Color3.new(1,1,1)
 		local self = {
 			_drawing = drawing, _point = point,
-			_visible = false, _opacity = 1, _zindex = 0,
+			_visible = true, _opacity = 1, _zindex = 0,
 			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
 			_xalignment = 0, _yalignment = 0, _rounding = 0,
 		}
@@ -2733,13 +2733,13 @@ do
 		local strips = {}
 		for i = 1, STRIPS do
 			local s = Drawing.new("Square")
-			s.Visible = false
+			s.Visible = true
 			s.Filled = true
 			strips[i] = s
 		end
 		local self = {
 			_drawing = strips[1], _strips = strips, _point = point,
-			_visible = false, _opacity = 1, _zindex = 0,
+			_visible = true, _opacity = 1, _zindex = 0,
 			_size = Vector2.new(50, 50),
 			_colorUL = Color3.new(1,1,1), _colorUR = Color3.new(1,1,1),
 			_colorBL = Color3.new(0,0,0), _colorBR = Color3.new(0,0,0),
@@ -2789,11 +2789,11 @@ do
 	ImageDynamic = {}
 	function ImageDynamic.new(point)
 		local drawing = Drawing.new("Image")
-		drawing.Visible = false
+		drawing.Visible = true
 		drawing.Size = Vector2.new(50, 50)
 		local self = {
 			_drawing = drawing, _point = point,
-			_visible = false, _opacity = 1, _zindex = 0,
+			_visible = true, _opacity = 1, _zindex = 0,
 			_image = nil, _imagesize = Vector2.new(0, 0),
 			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
 			_xalignment = 0, _yalignment = 0, _rounding = 0,
@@ -2849,7 +2849,7 @@ do
 		if #points > 1 then
 			for i = 1, #points - 1 do
 				local l = Drawing.new("Line")
-				l.Visible = false
+				l.Visible = true
 				l.Thickness = 1
 				l.Color = Color3.new(1,1,1)
 				lines[i] = l
@@ -2857,7 +2857,7 @@ do
 		end
 		local self = {
 			_drawing = lines[1] or Drawing.new("Line"), _lines = lines, _points_raw = points,
-			_visible = false, _opacity = 1, _zindex = 0,
+			_visible = true, _opacity = 1, _zindex = 0,
 			_outlined = false, _outlinecolor = Color3.new(0,0,0), _outlineopacity = 1, _outlinethickness = 1,
 			_filltype = 0,
 		}
