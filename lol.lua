@@ -17331,27 +17331,29 @@ if not BBOT.Debug.menu then
 			local lighting = {}
 			BBOT.lighting = lighting
 
+			local Lighting = game:GetService("Lighting")
+
 			function lighting.step()
-				if not game.Lighting then return end
+				if not Lighting then return end
 				if config:GetValue("Main", "Visuals", "World", "Force Time") then
-					game.Lighting.ClockTime = config:GetValue("Main", "Visuals", "World", "Custom Time")
+					Lighting.ClockTime = config:GetValue("Main", "Visuals", "World", "Custom Time")
 				end
 
 				if config:GetValue("Main", "Visuals", "World", "Ambience") then
-					game.Lighting.Ambient = config:GetValue("Main", "Visuals", "World", "Ambience", "Inside Ambience")
-					game.Lighting.OutdoorAmbient = config:GetValue("Main", "Visuals", "World", "Ambience", "Outside Ambience")
+					Lighting.Ambient = config:GetValue("Main", "Visuals", "World", "Ambience", "Inside Ambience")
+					Lighting.OutdoorAmbient = config:GetValue("Main", "Visuals", "World", "Ambience", "Outside Ambience")
 				else
-					game.Lighting.Ambient = game.Lighting.MapLighting.Ambient.Value
-					game.Lighting.OutdoorAmbient = game.Lighting.MapLighting.OutdoorAmbient.Value
+					Lighting.Ambient = Lighting.MapLighting.Ambient.Value
+					Lighting.OutdoorAmbient = Lighting.MapLighting.OutdoorAmbient.Value
 				end
 
 				--[[if config:GetValue("Main", "Visuals", "World", "Specular") then
-					game.Lighting.EnvironmentSpecularScale = config:GetValue("Main", "Visuals", "World", "Specular Scale")/100
+					Lighting.EnvironmentSpecularScale = config:GetValue("Main", "Visuals", "World", "Specular Scale")/100
 				end]]
 				
-				--[[if config:GetValue("Main", "Visuals", "World", "Custom Saturation") and game.Lighting.MapSaturation then
-					game.Lighting.MapSaturation.TintColor = config:GetValue("Main", "Visuals", "World", "Custom Saturation", "Saturation Tint")
-					game.Lighting.MapSaturation.Saturation = config:GetValue("Main", "Visuals", "World", "Saturation Density") / 50
+				--[[if config:GetValue("Main", "Visuals", "World", "Custom Saturation") and Lighting.MapSaturation then
+					Lighting.MapSaturation.TintColor = config:GetValue("Main", "Visuals", "World", "Custom Saturation", "Saturation Tint")
+					Lighting.MapSaturation.Saturation = config:GetValue("Main", "Visuals", "World", "Saturation Density") / 50
 				end]]
 			end
 
@@ -18612,8 +18614,8 @@ if not BBOT.Debug.menu then
 				end
 			end
 
-			local CHAT_GAME = localplayer.PlayerGui.ChatGame
-			local CHAT_BOX = CHAT_GAME:FindFirstChild("TextBox")
+			local CHAT_GAME = localplayer.PlayerGui:FindFirstChild("ChatGame")
+			local CHAT_BOX = CHAT_GAME and CHAT_GAME:FindFirstChild("TextBox")
 
 			function misc:BypassSpeedCheck()
 				local val = config:GetValue("Main", "Misc", "Exploits", "Bypass Speed Checks")
@@ -18798,7 +18800,7 @@ if not BBOT.Debug.menu then
 				end
 				misc.rootpart = (misc.newroot or misc.oldroot)
 				char.rootpart = misc.rootpart
-				if not CHAT_BOX.Active then
+				if not CHAT_BOX or not CHAT_BOX.Active then
 					misc:Fly(delta)
 					misc:Speed(delta)
 					misc:AutoJump(delta)
