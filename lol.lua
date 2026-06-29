@@ -5258,7 +5258,7 @@ do
 	-- Checks if the panel is being hovered over
 	function gui:IsHovering(object)
 		if not object._enabled then return end
-		return mouse.X > object.absolutepos.X and mouse.X < object.absolutepos.X + object.absolutesize.X and mouse.Y > object.absolutepos.Y - 36 and mouse.Y < object.absolutepos.Y + object.absolutesize.Y - 36
+		return mouse.X > object.absolutepos.X and mouse.X < object.absolutepos.X + object.absolutesize.X and mouse.Y > object.absolutepos.Y and mouse.Y < object.absolutepos.Y + object.absolutesize.Y
 	end
 
 	-- Check is the mouse is hovering any panel
@@ -15875,57 +15875,74 @@ if not BBOT.Debug.menu then
 			function aux:_Scan()
 				local core_aux, core_aux_sub = {}, {}
 
-				BBOT.log(LOG_DEBUG, "Scanning...")
+				BBOT.log(LOG_DEBUG, "Scanning (PhantomWare method)...")
 				BBOT:SetLoadingStatus(nil, 30)
 
-				BBOT.log(LOG_DEBUG, "Scanning auxillaries...")
-
-				for _=1, #aux_tables do
-					local data = aux_tables[_]
-					local name = data.Name
-					local sources = data.Sources
-					data.IgnoreSyn = true -- This should already be set to true[?] (as-per synv3 docs)
-					local gc = filtergc("table", data)
-					for i=1, #gc do
-						local gc_data = gc[i]
-						if sources then
-							local success = false
-							for fname, path in next, sources do
-								local value = rawget(gc_data, fname)
-								if typeof(value) == "function" and string.find(debug.getinfo(value).source, path, 1, true) then
-									success = true
-									break
-								end
-							end
-							if not success then continue end
+				-- Find PF's master modules table via GC (PhantomWare approach)
+				local Modules
+				for _, Value in next, getgc(true) do
+					if type(Value) == "table" and rawget(Value, "ScreenCull") and rawget(Value, "NetworkClient") then
+						Modules = {}
+						for Name, Data in next, Value do
+							Modules[Name] = type(Data) == "table" and rawget(Data, "module") or Data
 						end
-						if core_aux[name] ~= gc_data then
-							if core_aux[name] ~= nil then
-								BBOT.log(LOG_WARN, 'Warning: Auxillary overload for "' .. name .. '"')
-								for kk, vv in pairs(core_aux[name]) do
-									if vv ~= rawget(gc_data, kk) then
-										return "Duplicate auxillary \"" .. name .. "\""
-									end
-								end
-								core_aux[name] = gc_data
-								BBOT.log(LOG_DEBUG, 'Found Auxillary "' .. name .. '"')
-							else
-								core_aux[name] = gc_data
-								BBOT.log(LOG_DEBUG, 'Found Auxillary "' .. name .. '"')
-							end
-						end
+						break
 					end
 				end
 
+				if not Modules then
+					BBOT.log(LOG_WARN, "Could not find PF master modules table in GC")
+					return "Could not find PF modules"
+				end
+
+				BBOT.log(LOG_DEBUG, "Found PF modules table, mapping...")
+
+				-- Map PhantomWare module names to BBOT aux names
+				local module_map = {
+					["NetworkClient"] = "network",
+					["ReplicationInterface"] = "replication",
+					["CharacterInterface"] = "char",
+					["ScreenCull"] = "ScreenCull",
+					["CameraInterface"] = "camera",
+					["WeaponControllerInterface"] = "gamelogic",
+					["PlayerDataClientInterface"] = "playerdata",
+					["ReplicationObject"] = "replication_object",
+					["BulletObject"] = "bullet",
+					["FirearmObject"] = "firearm",
+					["PublicSettings"] = "settings",
+					["RecoilSprings"] = "recoil",
+				}
+
+				for pw_name, bbot_name in next, module_map do
+					if Modules[pw_name] then
+						core_aux[bbot_name] = Modules[pw_name]
+						BBOT.log(LOG_DEBUG, 'Mapped module "' .. pw_name .. '" -> aux.' .. bbot_name)
+					end
+				end
+
+				-- Also store any unmapped modules directly
+				for name, mod in next, Modules do
+					if not module_map[name] and type(mod) == "table" then
+						core_aux[name] = mod
+						BBOT.log(LOG_DEBUG, 'Stored unmapped module "' .. tostring(name) .. '"')
+					end
+				end
+
+				BBOT:SetLoadingStatus(nil, 35)
+
+				-- Also try to find aux functions via getgc
 				for _=1, #aux_functions do
 					local data = aux_functions[_]
 					local name = data.Name
-					data.IgnoreSyn = true
-					local gc = filtergc("function", data)
-					for i=1, #gc do
-						local gc_data = gc[i]
-						BBOT.log(LOG_DEBUG, 'Found Auxillary Function "' .. name .. '"')
-						core_aux_sub[name] = gc_data
+					for _, v in next, getgc() do
+						if type(v) == "function" then
+							local info = debug.getinfo(v)
+							if info and info.name == name then
+								core_aux_sub[name] = v
+								BBOT.log(LOG_DEBUG, 'Found Auxillary Function "' .. name .. '"')
+								break
+							end
+						end
 					end
 				end
 
@@ -16187,6 +16204,7 @@ if not BBOT.Debug.menu then
 				rawset(aux.network, "send", newcclosure(newsend))
 			end]]
 
+			local pf_hooks_ok, pf_hooks_err = pcall(function()
 			do
 				local oplay = rawget(aux.sound, "PlaySound")
 				local oplayid = rawget(aux.sound, "PlaySoundId")
@@ -16317,12 +16335,18 @@ if not BBOT.Debug.menu then
 				end
 			end)]]
 
+			end) -- end pcall for pf_hooks
+			if not pf_hooks_ok then
+				BBOT.log(LOG_WARN, "PF game hooks failed (internals changed): " .. tostring(pf_hooks_err))
+			end
+
 			local dt = tick() - profiling_tick
 			BBOT.log(LOG_NORMAL, "Took " .. math.round(dt, 2) .. "s to load auxillary")
 			BBOT:SetLoadingStatus(nil, 50)
 		end
 
 		-- Chat, allows for chat manipulations, or just being a dick with the chat spammer (Conversion In Progress)
+		if BBOT.aux.network then
 		do
 			local network = BBOT.aux.network
 			local hook = BBOT.hook
@@ -16796,7 +16820,11 @@ if not BBOT.Debug.menu then
 				chat:BufferStep()
 			end)
 		end
+		end -- end if BBOT.aux.network
 
+		if not BBOT.aux.network then
+			BBOT.log(LOG_WARN, "Skipping PF game features (aux.network not found)")
+		else
 		-- Votekick, handles the votekicks system (Conversion In Progress)
 		-- Anti-Votekick
 		do
@@ -25076,6 +25104,7 @@ if not BBOT.Debug.menu then
 				statistics:Set("stats")
 			end)
 		end
+		end -- end if/else BBOT.aux.network
 	elseif BBOT.universal then
 
 	end
@@ -25117,4 +25146,4 @@ end
 local ran, err = xpcall(ISOLATION, debug.traceback, BBOT)
 if not ran then
 	BBOT.log(LOG_ERROR, "Error loading Bitch Bot -", err)
-end
+end 
