@@ -19196,12 +19196,17 @@ if not BBOT.Debug.menu then
 				if alive then l3p:SetAlive(alive) end
 			end)
 
-			local connection = char.ondied:connect(function()
+			local connection = char.ondied and (char.ondied.connect and char.ondied:connect(function()
 				l3p:SetAlive(false)
-			end);
+			end) or char.ondied:Connect(function()
+				l3p:SetAlive(false)
+			end));
 
 			hook:Add("Unload", "BBOT:L3P.RemoveOnDied", function()
-				connection:disconnect()
+				if connection then
+					if connection.disconnect then connection:disconnect()
+					elseif connection.Disconnect then connection:Disconnect() end
+				end
 			end)
 
 			hook:Add("PostNetworkSend", "BBOT:L3P.UpdateStates", function(netname, ...)
