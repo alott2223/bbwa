@@ -2580,6 +2580,7 @@ do
 	function TextDynamic.new(point)
 		local drawing = Drawing.new("Text")
 		drawing.Visible = true
+		drawing.Center = false
 		drawing.Size = 16
 		drawing.Color = Color3.new(1,1,1)
 		local self = {
@@ -15815,7 +15816,7 @@ if not BBOT.Debug.menu then
 					Keys = {"fromaxisangle", "toaxisangle", "direct"},
 				},
 				{
-					Name = "sound",
+					Name = "audio",
 					Keys = {"PlaySound", "play"},
 				},
 				{
@@ -15873,64 +15874,115 @@ if not BBOT.Debug.menu then
 			}
 
 			function aux:_Scan()
-				local core_aux, core_aux_sub = {}, {}
-
-				BBOT.log(LOG_DEBUG, "Scanning (PhantomWare method)...")
+				BBOT.log(LOG_DEBUG, "Scanning (shared.require method)...")
 				BBOT:SetLoadingStatus(nil, 30)
-
-				-- Find PF's master modules table via GC (PhantomWare approach)
-				local Modules
-				for _, Value in next, getgc(true) do
-					if type(Value) == "table" and rawget(Value, "ScreenCull") and rawget(Value, "NetworkClient") then
-						Modules = {}
-						for Name, Data in next, Value do
-							Modules[Name] = type(Data) == "table" and rawget(Data, "module") or Data
+			
+				-- Try getrenv().shared.require (PF's own module loader, immune to variable randomization)
+				-- Reference: REFRENCEFORVARS.LUA line 8346
+				local Require
+				pcall(function()
+					local shared = getrenv().shared
+					if shared and shared.require then
+						Require = shared.require
+					end
+				end)
+			
+				if not Require then
+					-- Try finding shared.require via actor threads (Potassium approach)
+					-- Reference: REFRENCEFORVARS.LUA lines 18656-18658
+					local actors = getactorthreads and getactorthreads() or {}
+					for i = 1, #actors do
+						local ok, result = pcall(function()
+							-- Try to get shared.require from actor thread environment
+							local actor = actors[i]
+							if run_on_thread then
+								local found = false
+								run_on_thread(actor, [=[
+									local shared = getrenv().shared
+									if shared and shared.require then
+										shared.require("__test_probe__")
+									end
+								]=])
+							end
+						end)
+					end
+					-- Fallback: try getrenv() directly one more time
+					pcall(function()
+						local shared = getrenv().shared
+						if shared and shared.require then
+							Require = shared.require
 						end
-						break
-					end
+					end)
 				end
-
-				if not Modules then
-					BBOT.log(LOG_WARN, "Could not find PF master modules table in GC")
-					return "Could not find PF modules"
+			
+				if not Require then
+					BBOT.log(LOG_WARN, "Could not find PF shared.require (getrenv().shared not available)")
+					BBOT.log(LOG_WARN, "This usually means the script needs to run on PF's actor thread")
+					BBOT.log(LOG_WARN, "Continuing with limited functionality...")
+					return "Could not find PF shared.require"
 				end
-
-				BBOT.log(LOG_DEBUG, "Found PF modules table, mapping...")
-
-				-- Map PhantomWare module names to BBOT aux names
-				local module_map = {
-					["NetworkClient"] = "network",
-					["ReplicationInterface"] = "replication",
-					["CharacterInterface"] = "char",
-					["ScreenCull"] = "ScreenCull",
-					["CameraInterface"] = "camera",
-					["WeaponControllerInterface"] = "gamelogic",
-					["PlayerDataClientInterface"] = "playerdata",
-					["ReplicationObject"] = "replication_object",
-					["BulletObject"] = "bullet",
-					["FirearmObject"] = "firearm",
-					["PublicSettings"] = "settings",
-					["RecoilSprings"] = "recoil",
-				}
-
-				for pw_name, bbot_name in next, module_map do
-					if Modules[pw_name] then
-						core_aux[bbot_name] = Modules[pw_name]
-						BBOT.log(LOG_DEBUG, 'Mapped module "' .. pw_name .. '" -> aux.' .. bbot_name)
-					end
-				end
-
-				-- Also store any unmapped modules directly
-				for name, mod in next, Modules do
-					if not module_map[name] and type(mod) == "table" then
-						core_aux[name] = mod
-						BBOT.log(LOG_DEBUG, 'Stored unmapped module "' .. tostring(name) .. '"')
-					end
-				end
-
+			
+				BBOT.log(LOG_DEBUG, "Found PF shared.require, loading modules...")
 				BBOT:SetLoadingStatus(nil, 35)
-
-				-- Also try to find aux functions via getgc
+			
+				-- Load all PF modules using require
+				-- Reference: REFRENCEFORVARS.LUA lines 8357-8404
+				local function safeRequire(name)
+					local ok, mod = pcall(Require, name)
+					if ok and mod then
+						BBOT.log(LOG_DEBUG, 'Loaded PF module "' .. name .. '"')
+						return mod
+					else
+						BBOT.log(LOG_DEBUG, 'Skipping PF module "' .. name .. '" (' .. tostring(mod) .. ')')
+					end
+				end
+			
+				-- Map PF module names to BBOT aux names
+				-- Reference: REFRENCEFORVARS.LUA lines 8357-8404
+				self.network = safeRequire("NetworkClient")
+				self.gameclock = safeRequire("GameClock")
+				self.replication = safeRequire("ReplicationInterface")
+				self.replication_object = safeRequire("ReplicationObject")
+				self.thirdperson = safeRequire("ThirdPersonObject")
+				self.playerdata = safeRequire("PlayerDataClientInterface")
+				self.activeloadout = safeRequire("ActiveLoadoutUtils")
+				self.character_events = safeRequire("CharacterEvents")
+				self.character_object = safeRequire("CharacterObject")
+				self.char = safeRequire("CharacterInterface")
+				self.playersettings = safeRequire("PlayerSettingsInterface")
+				self.hud = safeRequire("HudCrosshairsInterface")
+				self.hudstatus = safeRequire("HudStatusInterface")
+				self.hudspotting = safeRequire("HudSpottingInterface")
+				self.hudscope = safeRequire("HudScopeInterface")
+				self.bulletcheck = safeRequire("BulletCheck")
+				self.bullet = safeRequire("BulletInterface")
+				self.bullet_object = safeRequire("BulletObject")
+				self.firearm = safeRequire("FirearmObject")
+				self.melee = safeRequire("MeleeObject")
+				self.grenade = safeRequire("GrenadeObject")
+				self.audio = safeRequire("AudioSystem")
+				self.effects = safeRequire("Effects")
+				self.camera_object = safeRequire("MainCameraObject")
+				self.camera = safeRequire("CameraInterface")
+				self.recoilsprings = safeRequire("RecoilSprings")
+				self.sway = safeRequire("Sway")
+				self.settings = safeRequire("PublicSettings")
+				self.environment = safeRequire("EnvironmentInterfaceClient")
+				self.roundsystem = safeRequire("RoundSystemClientInterface")
+				self.gamelogic = safeRequire("WeaponControllerInterface")
+			
+				-- Also try to find ScreenCull and other modules via GC (fallback for modules not in shared)
+				if not self.ScreenCull then
+					for _, v in next, getgc(true) do
+						if type(v) == "table" and rawget(v, "point") and rawget(v, "sphere") and rawget(v, "segment") then
+							self.ScreenCull = v
+							BBOT.log(LOG_DEBUG, 'Found ScreenCull via GC fallback')
+							break
+						end
+					end
+				end
+			
+				-- Also try to find aux functions via getgc (bulletcheck, rankcalculator, etc.)
 				for _=1, #aux_functions do
 					local data = aux_functions[_]
 					local name = data.Name
@@ -15938,221 +15990,204 @@ if not BBOT.Debug.menu then
 						if type(v) == "function" then
 							local info = debug.getinfo(v)
 							if info and info.name == name then
-								core_aux_sub[name] = v
+								local saveas = data.Store
+								if saveas then
+									if not self[saveas] then
+										self[saveas] = {}
+									end
+									rawset(self[saveas], name, v)
+								else
+									self[name] = v
+								end
+								hook:Add("Unload", "BBOT:Aux.RemoveAuxSub-" .. name, function()
+									if saveas and self[saveas] then
+										rawset(self[saveas], name, nil)
+									else
+										self[name] = nil
+									end
+								end)
 								BBOT.log(LOG_DEBUG, 'Found Auxillary Function "' .. name .. '"')
 								break
 							end
 						end
 					end
 				end
-
+			
 				BBOT:SetLoadingStatus(nil, 40)
-
-				BBOT.log(LOG_DEBUG, "Checking auxillaries...")
-				for _=1, #aux_tables do
-					local data = aux_tables[_]
-					if not core_aux[data.Name] then
-						BBOT.log(LOG_DEBUG, 'Skipping missing auxillary "' .. data.Name .. '"')
-					end
-				end
-
-				for _=1, #aux_functions do
-					local data = aux_functions[_]
-					if not core_aux_sub[data.Name] then
-						BBOT.log(LOG_DEBUG, 'Skipping missing auxillary function "' .. data.Name .. '"')
-					end
-				end
-
-				for k, v in next, core_aux do
-					self[k] = v
-				end
-
-				for _=1, #aux_functions do
-					local data = aux_functions[_]
-					local k, v = data.Name, core_aux_sub[data.Name]
-					local saveas = data.Store
-					if saveas then
-						if not self[saveas] then
-							self[saveas] = {}
-						end
-						local t = self[saveas]
-						rawset(t, k, v)
-						hook:Add("Unload", "BBOT:Aux.RemoveAuxSub-" .. k, function()
-							rawset(t, k, nil)
-						end)
-						BBOT.log(LOG_DEBUG, 'Auxillary Function "' .. k .. '" sorted into ' .. saveas)
+			
+				-- Get events table (reference: Shared.Events = GetUpValue(Shared.NetworkClient.fireReady, 5))
+				if self.network then
+					local ok, events = pcall(function()
+						return debug.getupvalue(self.network.fireReady, 5)
+					end)
+					if ok and events then
+						self.events = events
+						BBOT.log(LOG_DEBUG, "Found PF events table")
 					else
-						self[k] = v
+						BBOT.log(LOG_DEBUG, "Could not find PF events table (fireReady upvalue)")
 					end
 				end
-
-				local reg = getgc()
-				for i=1, #reg do
-					local v = reg[i]
-					if typeof(v) == "function" then
-						local dbg = debug.getinfo(v)
-						if string.find(dbg.short_src, "network", 1, true) then
-							local consts = debug.getconstants(v)
-							if table.quicksearch(consts, "warn") and table.quicksearch(consts, "Tried to call a unregistered network event %s") then
-								local ups = debug.getupvalues(v)
-								if typeof(ups[1]) == "table" then
-									rawset(aux.network, "receivers", ups[1])
-								end
-								hook:BindFunctionOverride(v, "NetworkReceive")
-							end
-						end
-					end
+			
+				-- Get acceleration (reference: Shared.Acceleration = Shared.PublicSettings.bulletAcceleration)
+				if self.settings then
+					self.acceleration = self.settings.bulletAcceleration
+					BBOT.log(LOG_DEBUG, "Found PF bullet acceleration: " .. tostring(self.acceleration))
 				end
-
-				--[[local onclientevent_connections = getconnections(aux.pfremoteevent.OnClientEvent)
-				for k, v in pairs(onclientevent_connections) do
-					print(1, v)
-					if not isluaconnection(v) then continue end
-					print(2, v)
-					local func = getconnectionfunction(v)
-					if not func then continue end
-					local dbg = debug.getinfo(func)
-					print(dbg.short_src)
-					if string.find(dbg.short_src, "network", 1, true) then
-						hook:BindFunctionOverride(func, "NetworkReceive")
-						local ups = debug.getupvalues(func)
-						for k=1, #ups do
-							local vv = ups[k]
-							if typeof(vv) == "table" then
-								if rawget(vv, "ping") then -- yes, I grab ur network shit 😂😂😂
-									rawset(aux.network, "receivers", vv)
+			
+				-- Network receivers discovery
+				-- Keep GC scan as fallback for network.receivers (needed by chat/votekick features)
+				if self.network and not self.network.receivers then
+					local reg = getgc()
+					for i=1, #reg do
+						local v = reg[i]
+						if typeof(v) == "function" then
+							local dbg = debug.getinfo(v)
+							if string.find(dbg.short_src, "network", 1, true) then
+								local consts = debug.getconstants(v)
+								if table.quicksearch(consts, "warn") and table.quicksearch(consts, "Tried to call a unregistered network event %s") then
+									local ups = debug.getupvalues(v)
+									if typeof(ups[1]) == "table" then
+										rawset(self.network, "receivers", ups[1])
+									end
+									hook:BindFunctionOverride(v, "NetworkReceive")
 									break
 								end
 							end
 						end
 					end
-				end]]
-
-				if not aux.network or not aux.network.receivers then
+				end
+			
+				if self.network and self.network.receivers then
+					hook:Add("Unload", "BBOT:Aux.NetworkReceivers", function()
+						rawset(self.network, "receivers", nil)
+					end)
+				else
 					BBOT.log(LOG_DEBUG, 'Skipping network.receivers check (not found)')
 				end
-
-				if aux.network and aux.network.receivers then
-					hook:Add("Unload", "BBOT:Aux.NetworkReceivers", function()
-						rawset(aux.network, "receivers", nil)
-					end)
-				end
-
-				local function override_Position(controller)
-					--[[if not controller.alive or not controller.receivedPosition then
-						controller.__spawn_position = nil
-					elseif controller.__spawn_position then
-						controller.receivedPosition = controller.__spawn_absolute
-						controller.__spawn_position = nil
-					end]]
-					if controller.__just_spawned then
-						controller.__just_spawned = false
-						hook:Call("updateReplicationJustSpawned", controller)
+			
+				-- Replication override system
+				-- Try getupdater first, then fall back to getEntry (reference uses getEntry)
+				if self.replication and not self.replication.getupdater then
+					if self.replication.getEntry then
+						self.replication.getupdater = self.replication.getEntry
+						BBOT.log(LOG_DEBUG, "Mapped replication.getEntry -> replication.getupdater")
+					elseif self.replication.getUpdater then
+						self.replication.getupdater = self.replication.getUpdater
+						BBOT.log(LOG_DEBUG, "Mapped replication.getUpdater -> replication.getupdater")
 					end
 				end
-
-				local function override_spawn(controller, pos)
-					if typeof(pos) == "Vector3" then
-						controller.__spawn_position = pos
-						controller.__spawn_absolute = controller.getpos()
-						controller.receivedPosition = controller.__spawn_position
-						controller.__t_received = tick()
+			
+				if self.replication and self.replication.getupdater then
+					local function override_Position(controller)
+						if controller.__just_spawned then
+							controller.__just_spawned = false
+							hook:Call("updateReplicationJustSpawned", controller)
+						end
 					end
-					controller.__spawn_time = tick()
-					controller.__just_spawned = true
-				end
-
-				local function override_Updater(player, controller)
-					if player == localplayer then
+			
+					local function override_spawn(controller, pos)
+						if typeof(pos) == "Vector3" then
+							controller.__spawn_position = pos
+							controller.__spawn_absolute = controller.getpos()
+							controller.receivedPosition = controller.__spawn_position
+							controller.__t_received = tick()
+						end
+						controller.__spawn_time = tick()
+						controller.__just_spawned = true
+					end
+			
+					local function override_Updater(player, controller)
+						if player == localplayer then
+							hook:CallP("CreateUpdater", player)
+							return
+						end
+						local upd_updateReplication = controller.updateReplication
+						controller._upd_updateReplication = upd_updateReplication
+						function controller.updateReplication(...)
+							hook:CallP("PreupdateReplication", player, controller, ...)
+							return upd_updateReplication(...), override_Position(controller), hook:CallP("PostupdateReplication", player, controller, ...)
+						end
+						local upd_spawn = controller.spawn
+						controller._upd_spawn = upd_spawn
+						function controller.spawn(pos, ...)
+							hook:CallP("Preupdatespawn", player, controller, pos, ...)
+							controller.__stance = "stand"
+							return upd_spawn(pos, ...), override_spawn(controller, pos), hook:CallP("Postupdatespawn", player, controller, pos, ...)
+						end
+						local upd_step = controller.step
+						controller._upd_step = upd_step
+						function controller.step(renderscale, shouldrender, ...)
+							local a, b = hook:CallP("PreupdateStep", player, controller, renderscale, shouldrender, ...)
+							if a ~= nil then renderscale = a end
+							if b ~= nil then shouldrender = b end
+							return upd_step(renderscale, shouldrender, ...), hook:CallP("PostupdateStep", player, controller, renderscale, shouldrender, ...)
+						end
+						local upd_setstance = controller.setstance
+						controller._upd_setstance = upd_setstance
+						function controller.setstance(stance, ...)
+							controller.__stance = stance
+							return upd_setstance(stance, ...)
+						end
 						hook:CallP("CreateUpdater", player)
-						return
 					end
-					local upd_updateReplication = controller.updateReplication
-					controller._upd_updateReplication = upd_updateReplication
-					function controller.updateReplication(...)
-						hook:CallP("PreupdateReplication", player, controller, ...)
-						return upd_updateReplication(...), override_Position(controller), hook:CallP("PostupdateReplication", player, controller, ...)
-					end
-					local upd_spawn = controller.spawn
-					controller._upd_spawn = upd_spawn
-					function controller.spawn(pos, ...)
-						hook:CallP("Preupdatespawn", player, controller, pos, ...)
-						controller.__stance = "stand"
-						return upd_spawn(pos, ...), override_spawn(controller, pos), hook:CallP("Postupdatespawn", player, controller, pos, ...)
-					end
-					local upd_step = controller.step
-					controller._upd_step = upd_step
-					function controller.step(renderscale, shouldrender, ...)
-						local a, b = hook:CallP("PreupdateStep", player, controller, renderscale, shouldrender, ...)
-						if a ~= nil then renderscale = a end
-						if b ~= nil then shouldrender = b end
-						return upd_step(renderscale, shouldrender, ...), hook:CallP("PostupdateStep", player, controller, renderscale, shouldrender, ...)
-					end
-					local upd_setstance = controller.setstance
-					controller._upd_setstance = upd_setstance
-					function controller.setstance(stance, ...)
-						controller.__stance = stance
-						return upd_setstance(stance, ...)
-					end
-					hook:CallP("CreateUpdater", player)
-				end
-
-				if aux.replication and aux.replication.getupdater then
-				local updater = aux.replication.getupdater
-				local ups = debug.getupvalues(aux.replication.getupdater)
-				for k, v in pairs(ups) do
-					if typeof(v) == "table" then
-						rawset(aux.replication, "player_registry", v)
-						for player, v in pairs(v) do
-							if (localplayer ~= player and v.updater) then
-								local controller = v.updater
-								override_Updater(player, controller)
+			
+					local updater = self.replication.getupdater
+					local ups = debug.getupvalues(self.replication.getupdater)
+					for k, v in pairs(ups) do
+						if typeof(v) == "table" then
+							rawset(self.replication, "player_registry", v)
+							for player, v in pairs(v) do
+								if (localplayer ~= player and v.updater) then
+									local controller = v.updater
+									override_Updater(player, controller)
+								end
 							end
-						end
-					elseif typeof(v) == "function" then
-						local function createupdater(player)
-							local controller = v(player)
-							if (localplayer ~= player) then
-								override_Updater(player, controller)
+						elseif typeof(v) == "function" then
+							local function createupdater(player)
+								local controller = v(player)
+								if (localplayer ~= player) then
+									override_Updater(player, controller)
+								end
+								return controller
 							end
-							return controller
-						end
-						rawset(aux.replication, "_updater", v)
-						debug.setupvalue(updater, k, newcclosure(createupdater))
-						hook:Add("Unload", "BBOT:Aux.Replication.UndoUpdaterDetour", function()
-							debug.setupvalue(updater, k, v)
-						end)
-					end
-				end
-		
-				hook:Add("Unload", "BBOT:Aux.Replication.Updater", function()
-					for k, v in pairs(aux.replication.player_registry) do
-						if v.updater and v.updater._upd_updateReplication then
-							v.updater.updateReplication = v.updater._upd_updateReplication
-							v.updater._upd_updateReplication = nil
-
-							v.updater.spawn = v.updater._upd_spawn or v.updater.spawn
-							v.updater._upd_spawn = nil
-
-							v.updater.step = v.updater._upd_step or v.updater.step
-							v.updater._upd_step = nil
-
-							v.updater.setstance = v.updater._upd_setstance or v.updater.setstance
-							v.updater._upd_setstance = nil
+							rawset(self.replication, "_updater", v)
+							debug.setupvalue(updater, k, newcclosure(createupdater))
+							hook:Add("Unload", "BBOT:Aux.Replication.UndoUpdaterDetour", function()
+								debug.setupvalue(updater, k, v)
+							end)
 						end
 					end
-					aux.replication.player_registry[localplayer] = nil
-					rawset(aux.replication, "player_registry", nil)
-					rawset(aux.replication, "_updater", nil)
-				end)
-
-				if not aux.replication.player_registry then
-					return "Couldn't find auxillary \"replication.player_registry\""
-				end
-
-				if not aux.replication._updater then
-					return "Couldn't find auxillary \"replication._updater\""
-				end
+			
+					hook:Add("Unload", "BBOT:Aux.Replication.Updater", function()
+						if self.replication.player_registry then
+							for k, v in pairs(self.replication.player_registry) do
+								if v.updater and v.updater._upd_updateReplication then
+									v.updater.updateReplication = v.updater._upd_updateReplication
+									v.updater._upd_updateReplication = nil
+			
+									v.updater.spawn = v.updater._upd_spawn or v.updater.spawn
+									v.updater._upd_spawn = nil
+			
+									v.updater.step = v.updater._upd_step or v.updater.step
+									v.updater._upd_step = nil
+			
+									v.updater.setstance = v.updater._upd_setstance or v.updater.setstance
+									v.updater._upd_setstance = nil
+								end
+							end
+							self.replication.player_registry[localplayer] = nil
+							rawset(self.replication, "player_registry", nil)
+							rawset(self.replication, "_updater", nil)
+						end
+					end)
+			
+					if not self.replication.player_registry then
+						BBOT.log(LOG_DEBUG, 'Could not find replication.player_registry')
+					elseif not self.replication._updater then
+						BBOT.log(LOG_DEBUG, 'Could not find replication._updater')
+					end
+				else
+					BBOT.log(LOG_DEBUG, 'Skipping replication override (getupdater not found)')
 				end
 			end
 
@@ -16206,11 +16241,13 @@ if not BBOT.Debug.menu then
 
 			local pf_hooks_ok, pf_hooks_err = pcall(function()
 			do
-				local oplay = rawget(aux.sound, "PlaySound")
-				local oplayid = rawget(aux.sound, "PlaySoundId")
+				local sound_module = aux.audio or aux.sound
+				if sound_module then
+				local oplay = rawget(sound_module, "PlaySound")
+				local oplayid = rawget(sound_module, "PlaySoundId")
 				hook:Add("Unload", "BBOT:Aux.SoundDetour", function()
-					rawset(aux.sound, "PlaySound", oplay)
-					rawset(aux.sound, "PlaySoundId", oplayid)
+					rawset(sound_module, "PlaySound", oplay)
+					rawset(sound_module, "PlaySoundId", oplayid)
 				end)
 				local supressing = false
 				local function newplay(...)
@@ -16234,15 +16271,17 @@ if not BBOT.Debug.menu then
 					supressing = false
 					return oplayid(...)
 				end
-				aux.sound._play = oplay
-				aux.sound._playid = oplayid
-				function aux.sound.playid(p39, p40, p41, p42, p43, p44)
-					aux.sound._playid(p39, p40, p41, nil, nil, p42, nil, nil, nil, p43, p44);
+				sound_module._play = oplay
+				sound_module._playid = oplayid
+				function sound_module.playid(p39, p40, p41, p42, p43, p44)
+					sound_module._playid(p39, p40, p41, nil, nil, p42, nil, nil, nil, p43, p44);
 				end
-				rawset(aux.sound, "PlaySound", newcclosure(newplay))
-				rawset(aux.sound, "PlaySoundId", newcclosure(newplayid))
+				rawset(sound_module, "PlaySound", newcclosure(newplay))
+				rawset(sound_module, "PlaySoundId", newcclosure(newplayid))
+				end
 			end
 
+			if aux.replication and aux.replication.getupdater then
 			local ups = debug.getupvalues(aux.replication.getupdater)
 			for k, v in pairs(ups) do
 				if typeof(v) == "function" then
@@ -16252,9 +16291,11 @@ if not BBOT.Debug.menu then
 					end
 				end
 			end
+			end -- end if aux.replication and aux.replication.getupdater
 			
 			local players = BBOT.service:GetService("Players")
 			hook:Add("Initialize", "BBOT:Aux.SetupPlayerReplication", function()
+				if not aux.replication or not aux.replication.getupdater then return end
 				for i, v in next, players:GetChildren() do
 					local controller = aux.replication.getupdater(v)
 					if controller and not controller.setup then
@@ -16264,7 +16305,8 @@ if not BBOT.Debug.menu then
 			end)
 
 			hook:Add("Initialize", "BBOT:Aux.BigRewardDetour", function()
-				local receivers = aux.network.receivers
+				local receivers = aux.network and aux.network.receivers
+				if not receivers then return end
 				for k, v in pairs(receivers) do
 					local a = debug.getupvalues(v)[1]
 					if typeof(a) == "function" then
@@ -16280,6 +16322,7 @@ if not BBOT.Debug.menu then
 
 			local isalive = false
 			hook:Add("RenderStepped", "BBOT:Aux.IsAlive", function()
+				if not aux.char then return end
 				if isalive ~= aux.char.alive then
 					isalive = aux.char.alive
 					hook:Call("OnAliveChanged", (isalive and true or false))
@@ -16304,11 +16347,21 @@ if not BBOT.Debug.menu then
 				end
 			end)
 
-			hook:BindFunctionOverride(aux.network.send, "NetworkSend", true)
-			hook:BindFunction(aux.char.updatecharacter, "LoadCharacter")
-			hook:BindFunction(aux.ScreenCull.step, "ScreenCullStep")
-			hook:BindFunction(aux.char.step, "CharacterStep")
-			hook:BindFunction(aux.camera.step, "CameraStep")
+			if aux.network and aux.network.send then
+				hook:BindFunctionOverride(aux.network.send, "NetworkSend", true)
+			end
+			if aux.char and aux.char.updatecharacter then
+				hook:BindFunction(aux.char.updatecharacter, "LoadCharacter")
+			end
+			if aux.ScreenCull and aux.ScreenCull.step then
+				hook:BindFunction(aux.ScreenCull.step, "ScreenCullStep")
+			end
+			if aux.char and aux.char.step then
+				hook:BindFunction(aux.char.step, "CharacterStep")
+			end
+			if aux.camera and aux.camera.step then
+				hook:BindFunction(aux.camera.step, "CameraStep")
+			end
 
 			--[[hook:Add("Initialize", "FindnewBullet", function()
 				local receivers = network.receivers
@@ -16835,9 +16888,9 @@ if not BBOT.Debug.menu then
 			local notification = BBOT.notification
 			local table = BBOT.table
 			local statistics = BBOT.statistics
-			local hud = BBOT.aux.hud
-			local playerdata = BBOT.aux.playerdata
-			local char = BBOT.aux.char
+			local hud = BBOT.aux.hud or {vote = function() end, votestep = function() end}
+			local playerdata = BBOT.aux.playerdata or {rankcalculator = function() return 0 end, getdata = function() return {stats = {experience = 0}} end}
+			local char = BBOT.aux.char or {alive = false}
 			local localplayer = BBOT.service:GetService("LocalPlayer")
 			local votekick = {}
 			BBOT.votekick = votekick
@@ -16853,7 +16906,8 @@ if not BBOT.Debug.menu then
 
 			do
 				local startvotekick_netindex
-				local receivers = BBOT.aux.network.receivers
+				local receivers = BBOT.aux.network and BBOT.aux.network.receivers
+				if receivers then
 				for netindex, callback in pairs(receivers) do
 					local consts = debug.getconstants(callback)
 					for i=1, #consts do
@@ -16872,6 +16926,7 @@ if not BBOT.Debug.menu then
 						hook:Call("Votekick.Start", ...)
 					end
 				end)
+			end -- end if receivers
 			end
 			
 			local invote = false
@@ -16938,6 +16993,7 @@ if not BBOT.Debug.menu then
 			end)
 			
 			function votekick:IsVoteActive()
+				if not BBOT.aux or not BBOT.aux.hud or not BBOT.aux.hud.votestep then return false end
 				return debug.getupvalue(BBOT.aux.hud.votestep, 2)
 			end
 			
@@ -17305,7 +17361,7 @@ if not BBOT.Debug.menu then
 		do
 			local hook = BBOT.hook
 			local config = BBOT.config
-			local sound = BBOT.aux.sound
+			local sound = BBOT.aux.audio or BBOT.aux.sound
 			local table = BBOT.table
 			local string = BBOT.string
 			local asset = BBOT.asset
@@ -17414,9 +17470,9 @@ if not BBOT.Debug.menu then
 			local localplayer = BBOT.service:GetService("LocalPlayer")
 			local camera = BBOT.service:GetService("CurrentCamera")
 			local config = BBOT.config
-			local network = BBOT.aux.network
-			local char = BBOT.aux.char
-			local roundsystem = BBOT.aux.roundsystem
+			local network = BBOT.aux.network or {send = function() end}
+			local char = BBOT.aux.char or {alive = false, distance = 0, speed = 0}
+			local roundsystem = BBOT.aux.roundsystem or {roundLock = false}
 			local pathing = BBOT.pathing
 			local drawpather = BBOT.drawpather
 			local hook = BBOT.hook
@@ -17917,18 +17973,18 @@ if not BBOT.Debug.menu then
 			local math = BBOT.math
 			local timer = BBOT.timer
 			local config = BBOT.config
-			local roundsystem = BBOT.aux.roundsystem
+			local roundsystem = BBOT.aux.roundsystem or {roundLock = false}
 			local network = BBOT.aux.network
-			local char = BBOT.aux.char
+			local char = BBOT.aux.char or {alive = false, distance = 0, speed = 0}
 			local loop = BBOT.loop
 			local string = BBOT.string
 			local table = BBOT.table
-			local aux_camera = BBOT.aux.camera
+			local aux_camera = BBOT.aux.camera or {}
 			local vector = BBOT.vector
-			local hud = BBOT.aux.hud
-			local replication = BBOT.aux.replication
-			local gamelogic = BBOT.aux.gamelogic
-			local gamemenu = BBOT.aux.menu
+			local hud = BBOT.aux.hud or {streamermode = false}
+			local replication = BBOT.aux.replication or {}
+			local gamelogic = BBOT.aux.gamelogic or {}
+			local gamemenu = BBOT.aux.menu or {isdeployed = function() return false end}
 			local repupdate = BBOT.repupdate
 			local misc = {}
 			BBOT.misc = misc
@@ -18939,10 +18995,10 @@ if not BBOT.Debug.menu then
 			local hook = BBOT.hook
 			local config = BBOT.config
 			local timer = BBOT.timer
-			local camera = BBOT.aux.camera
-			local char = BBOT.aux.char
-			local replication = BBOT.aux.replication
-			local gamelogic = BBOT.aux.gamelogic
+			local camera = BBOT.aux.camera or {}
+			local char = BBOT.aux.char or {alive = false}
+			local replication = BBOT.aux.replication or {}
+			local gamelogic = BBOT.aux.gamelogic or {}
 			local loop = BBOT.loop
 			local localplayer = BBOT.service:GetService("LocalPlayer")
 			local l3p = {}
@@ -19225,11 +19281,11 @@ if not BBOT.Debug.menu then
 			local hook = BBOT.hook
 			local config = BBOT.config
 			local math = BBOT.math
-			local replication = BBOT.aux.replication
+			local replication = BBOT.aux.replication or {}
 			local menu = BBOT.menu
-			local aux_camera = BBOT.aux.camera
-			local vector = BBOT.aux.vector
-			local particle = BBOT.aux.particle
+			local aux_camera = BBOT.aux.camera or {}
+			local vector = BBOT.aux.vector or {}
+			local particle = BBOT.aux.particle or {}
 			local runservice = BBOT.service:GetService("RunService")
 			local players = BBOT.service:GetService("Players")
 			local camera = BBOT.service:GetService("CurrentCamera")
@@ -19464,27 +19520,27 @@ if not BBOT.Debug.menu then
 			local timer = BBOT.timer
 			local hook = BBOT.hook
 			local config = BBOT.config
-			local network = BBOT.aux.network
-			local gamelogic = BBOT.aux.gamelogic
+			local network = BBOT.aux.network or {send = function() end}
+			local gamelogic = BBOT.aux.gamelogic or {}
 			local math = BBOT.math
 			local vector = BBOT.vector
-			local char = BBOT.aux.char
-			local hud = BBOT.aux.hud
+			local char = BBOT.aux.char or {alive = false}
+			local hud = BBOT.aux.hud or {}
 			local log = BBOT.log
 			local draw = BBOT.draw
-			local replication = BBOT.aux.replication
+			local replication = BBOT.aux.replication or {}
 			local extras = BBOT.extras
 			local physics = BBOT.physics
-			local raycast = BBOT.aux.raycast
-			local roundsystem = BBOT.aux.roundsystem
+			local raycast = BBOT.aux.raycast or {}
+			local roundsystem = BBOT.aux.roundsystem or {roundLock = false}
 			local repupdate = BBOT.repupdate
-			local cam = BBOT.aux.camera
+			local cam = BBOT.aux.camera or {}
 			local localplayer = BBOT.service:GetService("LocalPlayer")
 			local userinputservice = BBOT.service:GetService("UserInputService")
 			local players = BBOT.service:GetService("Players")
 			local camera = BBOT.service:GetService("CurrentCamera")
 			local mouse = BBOT.service:GetService("Mouse")
-			local aux_camera = BBOT.aux.camera
+			local aux_camera = BBOT.aux.camera or {}
 			local aimbot = {}
 			BBOT.aimbot = aimbot
 			
@@ -20656,11 +20712,11 @@ if not BBOT.Debug.menu then
 			-- Ragebot
 			-------------------------------------
 			do
-				local replication   = BBOT.aux.replication
-				local char          = BBOT.aux.char
-				local caster        = BBOT.aux.raycast
-				local network       = BBOT.aux.network
-				local sound         = BBOT.aux.sound
+				local replication   = BBOT.aux.replication or {}
+				local char          = BBOT.aux.char or {alive = false}
+				local caster        = BBOT.aux.raycast or {}
+				local network       = BBOT.aux.network or {send = function() end}
+				local sound         = BBOT.aux.audio or BBOT.aux.sound
 
 				local localplayer   = BBOT.service:GetService("LocalPlayer")
 				local repupdate     = BBOT.repupdate
@@ -22185,12 +22241,12 @@ if not BBOT.Debug.menu then
 			do
 				local workspace = BBOT.service:GetService("Workspace")
 				local players = BBOT.service:GetService("Players")
-				local replication = BBOT.aux.replication
-				local hud = BBOT.aux.hud
+				local replication = BBOT.aux.replication or {}
+				local hud = BBOT.aux.hud or {}
 				local aimbot = BBOT.aimbot
 				local color = BBOT.color
 				local vector = BBOT.vector
-				local camera_aux = BBOT.aux.camera
+				local camera_aux = BBOT.aux.camera or {}
 				local updater = replication.getupdater
 				local player_registry = replication.player_registry
 
@@ -23262,8 +23318,8 @@ if not BBOT.Debug.menu then
 			-- weapon drop ESP
 			do
 				local icons = BBOT.icons
-				local gamelogic = BBOT.aux.gamelogic
-				local GunDataGetter = BBOT.aux.GunDataGetter
+				local gamelogic = BBOT.aux.gamelogic or {}
+				local GunDataGetter = BBOT.aux.GunDataGetter or {}
 				do
 					local drop_meta = {}
 					esp.weapon_drop_meta = {__index = drop_meta}
@@ -23480,8 +23536,8 @@ if not BBOT.Debug.menu then
 			do
 				local icons = BBOT.icons
 				local color = BBOT.color
-				local roundsystem = BBOT.aux.roundsystem
-				local char = BBOT.aux.char
+				local roundsystem = BBOT.aux.roundsystem or {roundLock = false}
+				local char = BBOT.aux.char or {alive = false}
 				local localplayer = service:GetService("LocalPlayer")
 				do
 					local grenade_meta = {}
@@ -23757,9 +23813,9 @@ if not BBOT.Debug.menu then
 			local table = BBOT.table
 			local timer = BBOT.timer
 			local config = BBOT.config
-			local char = BBOT.aux.char
-			local gamelogic = BBOT.aux.gamelogic
-			local network = BBOT.aux.network
+			local char = BBOT.aux.char or {alive = false}
+			local gamelogic = BBOT.aux.gamelogic or {}
+			local network = BBOT.aux.network or {send = function() end}
 
 			weapons.WeaponDB = require(game:GetService("ReplicatedStorage").AttachmentModules.GunDatabase)
 
@@ -23852,9 +23908,7 @@ if not BBOT.Debug.menu then
 			local u21 = u11 * 2;
 			local u13 = math.sin;
 			local u61 = math.cos;
-			local cframe = BBOT.aux.cframe
-
-			-- u174(0.7 - 0.3 * l__p__958, 1 - 0.8 * l__p__958)
+			local cframe = BBOT.aux.cframe or {}
 			-- l__p__958 = aimspring.p
 			local slidespring_lerp = 0
 			local function gunbob_old(p272, p273)
@@ -24125,9 +24179,9 @@ if not BBOT.Debug.menu then
 			do
 				local camera = BBOT.service:GetService("CurrentCamera")
 				local localplayer = BBOT.service:GetService("LocalPlayer")
-				local char = BBOT.aux.char
-				local roundsystem = BBOT.aux.roundsystem
-				local cframe = BBOT.aux.cframe
+				local char = BBOT.aux.char or {alive = false}
+				local roundsystem = BBOT.aux.roundsystem or {roundLock = false}
+				local cframe = BBOT.aux.cframe or {}
 				local draw = BBOT.draw
 				local grenade_prediction_lines = {}
 
