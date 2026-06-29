@@ -16415,6 +16415,7 @@ if not BBOT.Debug.menu then
 				local chat_netindex, console_netindex
 
 				local receivers = network.receivers
+				if receivers then
 				for netindex, callback in pairs(receivers) do
 					local const = debug.getconstants(callback)
 					if table.quicksearch(const, "Tag") and table.quicksearch(const, "rbxassetid://") then
@@ -16422,6 +16423,7 @@ if not BBOT.Debug.menu then
 					elseif table.quicksearch(const, "[Console]: ") and table.quicksearch(const, "Tag") then
 						console_netindex = netindex
 					end
+				end
 				end
 
 				hook:Add("PostNetworkReceive", "BBOT:Chat.Network", function(netname, ...)
@@ -18898,11 +18900,13 @@ if not BBOT.Debug.menu then
 				local killed_netindex
 
 				local receivers = network.receivers
+				if receivers then
 				for netindex, callback in pairs(receivers) do
 					local const = debug.getconstants(callback)
 					if table.quicksearch(const, "setfixedcam") and table.quicksearch(const, "setspectate") and table.quicksearch(const, "isplayeralive") and table.quicksearch(const, "Killer") then
 						killed_netindex = netindex
 					end
+				end
 				end
 
 				hook:Add("PostNetworkReceive", "BBOT:LocalKilled.Network", function(netname, ...)
@@ -23990,6 +23994,7 @@ if not BBOT.Debug.menu then
 			local workspace = BBOT.service:GetService("Workspace")
 			hook:Add("Initialize", "BBOT:Weapons.Detour", function()
 				local receivers = network.receivers
+				if not receivers then return end
 				for k, v in pairs(receivers) do
 					local const = debug.getconstants(v)
 					if table.quicksearch(const, "Trigger") and table.quicksearch(const, "Indicator") and table.quicksearch(const, "Ticking") then
@@ -24937,6 +24942,7 @@ if not BBOT.Debug.menu then
 
 				hook:Add("PreInitialize", "BBOT:Weapons.SkinDB", function()
 					local receivers = network.receivers
+					if not receivers then return end
 					for k, v in pairs(receivers) do
 						local ups = debug.getupvalues(v)
 						for kk, vv in pairs(ups) do
